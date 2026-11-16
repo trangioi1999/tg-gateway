@@ -17,6 +17,7 @@ import {
 import { prepare, Completion, credits, object } from "./protocol.ts";
 import { KiroAuth } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
+import { detectClient } from "./clients.ts";
 
 const json = (
   data: unknown,
@@ -65,6 +66,17 @@ export class Gateway extends DurableObject<Env> {
     this.sql.exec(
       `CREATE INDEX IF NOT EXISTS requests_time ON requests(started)`,
     );
+    // Columns added after v0.1. CREATE TABLE IF NOT EXISTS does not alter existing tables.
+    const columns = new Set(
+      this.sql
+        .exec<{ name: string }>("PRAGMA table_info(requests)")
+        .toArray()
+        .map((c) => c.name),
+    );
+    if (!columns.has("client"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN client TEXT NOT NULL DEFAULT 'other'",
+      );
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL)`,
     );
@@ -299,6 +311,14 @@ export class Gateway extends DurableObject<Env> {
         since,
       )
       .toArray();
+    const clients = this.sql
+      .exec(
+        `SELECT client, COUNT(*) requests, COALESCE(SUM(status>=400),0) failed,
+          COALESCE(SUM(input_tokens+output_tokens),0) tokens, MAX(started) last_seen
+          FROM requests WHERE started>=? GROUP BY client ORDER BY requests DESC`,
+        since,
+      )
+      .toArray();
     const now = new Date(),
       monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
     const month = this.sql
@@ -309,6 +329,7 @@ export class Gateway extends DurableObject<Env> {
       totals,
       series,
       models,
+      clients,
       month,
       settings: this.settings(),
       retentionDays: this.settings().retentionDays,
@@ -373,6 +394,7 @@ export class Gateway extends DurableObject<Env> {
     const columns = [
       "id",
       "started",
+      "client",
       "model",
       "status",
       "latency",
@@ -399,7 +421,7 @@ export class Gateway extends DurableObject<Env> {
       {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": 'attachment; filename="kiro-requests.csv"',
+          "Content-Disposition": 'attachment; filename="tg-gateway-requests.csv"',
           "Cache-Control": "no-store",
         },
       },
@@ -410,12 +432,13 @@ export class Gateway extends DurableObject<Env> {
       started = Date.now(),
       s = this.settings();
     this.sql.exec(
-      "INSERT INTO requests(id,started,endpoint,input_rate,output_rate) VALUES(?,?,?,?,?)",
+      "INSERT INTO requests(id,started,endpoint,input_rate,output_rate,client) VALUES(?,?,?,?,?,?)",
       id,
       started,
       new URL(request.url).pathname,
       s.inputCreditsPerMillion,
       s.outputCreditsPerMillion,
+      detectClient(request.headers),
     );
     let result: Completion | undefined,
       recorded = false,

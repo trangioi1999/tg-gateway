@@ -13,6 +13,7 @@ Gateway TypeScript chạy trực tiếp trên **Cloudflare Workers**, có dashbo
 - Settings: bật/tắt gateway, model allowlist, API region, rate limit, timeout, retention, tỷ lệ token/credit, mục tiêu ngân sách tháng.
 - Secrets chỉ nằm ở Cloudflare; dashboard không đọc hoặc trả giá trị bí mật. Token refresh xoay vòng được mã hóa AES-GCM trước khi lưu.
 - Cookie đăng nhập HttpOnly + SameSite=Strict (+ Secure khi HTTPS), CSRF origin check, giới hạn đăng nhập, CSP, API key riêng.
+- Nhận diện agent gọi tới (Claude Code, Claude Code trong IDE, Cursor, Cline, Roo Code, Kilo Code, Continue, opencode, Aider, Anthropic/OpenAI SDK, curl) từ User-Agent, hiển thị thống kê và icon theo agent. Header do client tự khai nên chỉ dùng để thống kê, không dùng cho xác thực.
 - Không lưu nội dung prompt/câu trả lời. Chỉ lưu metadata request. Worker observability tắt mặc định để tránh log không cần thiết.
 
 ## Chạy local

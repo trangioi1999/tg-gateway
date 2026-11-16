@@ -3,38 +3,57 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>TG Gateway · Gateway console</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>tg-gateway</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <section id="login-screen" class="login-screen">
-      <div class="login-brand">
-        <span class="brand-symbol">k<span>·</span></span
-        ><span>tg<span class="muted-brand"> / gateway</span></span>
-      </div>
-      <div class="login-layout">
-        <div class="login-intro">
-          <div class="eyebrow">YOUR MODELS. YOUR GATEWAY.</div>
-          <h1>Mọi request.<br />Một góc nhìn.</h1>
-          <p>
-            Kết nối Kiro với ứng dụng của bạn. Theo dõi lưu lượng, hiểu chi phí
-            và kiểm soát gateway từ một nơi.
-          </p>
-          <div class="login-flow">
-            <span>Ứng dụng</span><b>→</b><span>TG Gateway</span><b>→</b
-            ><span>Kiro API</span>
-          </div>
-          <div class="login-note">
-            <span class="status-dot"></span> Chạy trên Cloudflare Workers
-          </div>
+      <div class="login-side">
+        <div class="wordmark">
+          <svg
+            class="gate-mark"
+            width="40"
+            height="40"
+            viewBox="0 0 64 64"
+            aria-hidden="true"
+          >
+            <rect width="64" height="64" rx="15" fill="#1B4FA0" />
+            <rect x="10" y="12" width="44" height="7" rx="2" fill="#fff" />
+            <rect x="14" y="19" width="8" height="33" fill="#fff" />
+            <rect x="42" y="19" width="8" height="33" fill="#fff" />
+            <path
+              class="gate-arm"
+              d="M22 44 38 32"
+              stroke="#F0A202"
+              stroke-width="6"
+              stroke-linecap="round"
+            /></svg
+          ><span>tg-gateway</span>
         </div>
-        <form id="login-form" class="login-card">
-          <span class="small-label">GATEWAY CONSOLE</span>
-          <h2>Chào mừng trở lại.</h2>
-          <p>Đăng nhập để quản lý gateway của bạn.</p>
+        <div class="login-copy">
+          <h1>Mọi request đi qua một cổng.</h1>
+          <p>
+            Ứng dụng của bạn gọi tg-gateway, tg-gateway gọi Kiro. Bạn thấy rõ
+            lượt gọi, lỗi và credit ở một nơi.
+          </p>
+          <p class="works-with">Dùng được với</p>
+          <ul class="agent-strip" aria-label="Agent dùng được với gateway">
+            <li><span class="agent" data-agent="claude-code">&gt;_</span>Claude Code</li>
+            <li><span class="agent" data-agent="cursor">↖</span>Cursor</li>
+            <li><span class="agent" data-agent="cline">Cl</span>Cline</li>
+            <li><span class="agent" data-agent="roo-code">Ro</span>Roo Code</li>
+            <li><span class="agent" data-agent="openai-sdk">{O}</span>OpenAI SDK</li>
+            <li><span class="agent" data-agent="anthropic-sdk">{A}</span>Anthropic SDK</li>
+          </ul>
+        </div>
+        <div class="barrier" aria-hidden="true"></div>
+      </div>
+      <div class="login-main">
+        <form id="login-form" class="login-form">
+          <h2>Đăng nhập</h2>
           <label for="password">Mật khẩu quản trị</label
           ><input
             id="password"
@@ -42,441 +61,333 @@
             type="password"
             autocomplete="current-password"
             required
-            placeholder="Nhập ADMIN_PASSWORD"
-          /><button class="primary" type="submit">
-            Vào dashboard <span>↗</span>
-          </button>
+          /><button class="primary" type="submit">Đăng nhập</button>
           <p id="login-error" class="error" role="alert"></p>
-          <div class="login-security">
-            Mật khẩu được cấu hình trong Cloudflare Secrets.<br />Phiên đăng
-            nhập tự hết hạn sau 8 giờ.
-          </div>
+          <p class="hint">
+            Dùng giá trị ADMIN_PASSWORD đã đặt khi setup. Phiên đăng nhập hết
+            hạn sau 8 giờ.
+          </p>
         </form>
       </div>
-      <footer>TG Gateway <span>Independent gateway · v0.1</span></footer>
     </section>
+
     <div id="app" class="app" hidden>
       <aside class="sidebar">
-        <a class="brand" href="#overview"
-          ><span class="brand-symbol">k<span>·</span></span
-          ><span>tg<span class="muted-brand"> / gateway</span></span></a
+        <a class="wordmark" href="#overview"
+          ><img src="/icon.svg" alt="" width="32" height="32" /><span
+            >tg-gateway</span
+          ></a
         >
-        <div class="workspace-label">WORKSPACE <span>01</span></div>
+        <span id="gateway-status" class="gate-state">Đang kiểm tra</span>
         <nav aria-label="Điều hướng">
-          <a href="#overview" data-page="overview"><span>◫</span>Tổng quan</a
-          ><a href="#requests" data-page="requests"
-            ><span>⇄</span>Lịch sử request</a
-          ><a href="#settings" data-page="settings"><span>⚙</span>Cài đặt</a>
+          <a href="#overview" data-page="overview">Tổng quan</a
+          ><a href="#requests" data-page="requests">Lịch sử request</a
+          ><a href="#settings" data-page="settings">Cài đặt</a>
         </nav>
-        <div class="sidebar-bottom">
-          <div class="edge-box">
-            <span class="edge-icon">☁</span>
-            <div>
-              <strong>Cloudflare Workers</strong><small>Gateway tại edge</small>
-            </div>
+        <div class="sidebar-foot">
+          <div class="endpoint">
+            <span>Base URL</span>
+            <code id="base-url"></code>
+            <button id="copy-url" type="button" class="link-button">
+              Sao chép
+            </button>
           </div>
-          <button id="logout" class="logout">Đăng xuất <span>↗</span></button>
+          <button id="logout" class="link-button">Đăng xuất</button>
         </div>
       </aside>
+
       <main>
-        <header class="topbar">
+        <div class="page-heading">
           <div>
-            <span class="breadcrumb">Workspace</span><span class="slash">/</span
-            ><span id="page-name">Tổng quan</span>
+            <h1 id="page-title">Tổng quan</h1>
+            <p id="page-description"></p>
           </div>
-          <div class="topbar-right">
-            <span id="gateway-status" class="badge">Đang kiểm tra</span
-            ><span class="avatar" aria-label="Quản trị viên">AD</span>
+          <div id="range-controls" class="toolbar">
+            <select id="range" aria-label="Khoảng thời gian">
+              <option value="1">24 giờ qua</option>
+              <option value="7" selected>7 ngày qua</option>
+              <option value="30">30 ngày qua</option>
+              <option value="90">90 ngày qua</option></select
+            ><button id="refresh" class="secondary">Làm mới</button>
           </div>
-        </header>
-        <div class="content">
-          <div class="page-heading">
-            <div>
-              <div class="eyebrow">GATEWAY CONSOLE</div>
-              <h1 id="page-title">Tổng quan</h1>
-              <p id="page-description">
-                Lưu lượng và chi phí, trong cùng một góc nhìn.
-              </p>
-            </div>
-            <div id="range-controls" class="toolbar">
-              <select id="range" aria-label="Khoảng thời gian">
-                <option value="1">24 giờ qua</option>
-                <option value="7" selected>7 ngày qua</option>
-                <option value="30">30 ngày qua</option>
-                <option value="90">90 ngày qua</option></select
-              ><button id="refresh" class="secondary">
-                ↻ <span>Làm mới</span>
-              </button>
-            </div>
-          </div>
-          <section id="overview" class="page">
-            <div class="metrics">
-              <article class="metric">
-                <div>Tổng request <span>↗</span></div>
-                <strong id="metric-requests">—</strong
-                ><small id="metric-success">Đang tải dữ liệu</small>
-              </article>
-              <article class="metric">
-                <div>Token đã dùng <span>≋</span></div>
-                <strong id="metric-tokens">—</strong
-                ><small id="metric-token-source">Số báo cáo / ước tính</small>
-              </article>
-              <article class="metric">
-                <div>Credit quy đổi <span>◇</span></div>
-                <strong id="metric-estimated">—</strong
-                ><small>Theo tỷ lệ tại thời điểm request</small>
-              </article>
-              <article class="metric highlight">
-                <div>Credit Kiro báo cáo <span>✳</span></div>
-                <strong id="metric-reported">—</strong
-                ><small id="metric-coverage">Chỉ tính số Kiro trả về</small>
-              </article>
-            </div>
-            <div class="overview-grid">
-              <article class="panel traffic-panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Lưu lượng request</h2>
-                    <p>Hoạt động theo ngày · UTC</p>
-                  </div>
-                  <div class="legend">
-                    <i></i> Request <i class="error-dot"></i> Lỗi
-                  </div>
-                </div>
-                <div
-                  id="chart"
-                  class="chart"
-                  aria-label="Biểu đồ request"
-                ></div>
-                <div class="chart-footer">
-                  <span id="latency">Độ trễ trung bình —</span
-                  ><span id="updated">—</span>
-                </div>
-              </article>
-              <article class="panel budget-panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Ngân sách tháng</h2>
-                    <p>Credit quy đổi · tháng hiện tại (UTC)</p>
-                  </div>
-                  <span>◔</span>
-                </div>
-                <div class="budget-display">
-                  <strong id="budget-used">—</strong
-                  ><span>credit đã quy đổi</span>
-                </div>
-                <progress
-                  id="budget-progress"
-                  max="100"
-                  value="0"
-                  aria-label="Tiến độ ngân sách"
-                ></progress>
-                <div class="budget-row">
-                  <span>Mục tiêu tháng</span
-                  ><strong id="budget-limit">Chưa thiết lập</strong>
-                </div>
-                <p class="note">
-                  Mục tiêu để theo dõi, không tự chặn request. Chỉ bao gồm dữ
-                  liệu còn trong thời hạn lưu.
-                </p>
-                <a href="#settings" class="text-link"
-                  >Điều chỉnh ngân sách ↗</a
-                >
-              </article>
-            </div>
-            <div class="overview-grid lower-grid">
-              <article class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Model đang sử dụng</h2>
-                    <p>Phân bổ request trong khoảng đã chọn</p>
-                  </div>
-                  <span>◈</span>
-                </div>
-                <div id="model-list" class="model-list"></div>
-              </article>
-              <article class="panel calculator">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Thử quy đổi token</h2>
-                    <p>Dự tính theo tỷ lệ hiện tại</p>
-                  </div>
-                  <span>⌘</span>
-                </div>
-                <div class="two-fields">
-                  <label
-                    >Input token<input
-                      id="calc-input"
-                      type="number"
-                      value="10000"
-                      min="0"
-                      max="1000000000"
-                      step="1" /></label
-                  ><label
-                    >Output token<input
-                      id="calc-output"
-                      type="number"
-                      value="2000"
-                      min="0"
-                      max="1000000000"
-                      step="1"
-                  /></label>
-                </div>
-                <div class="calc-result">
-                  <span>Credit quy đổi</span><strong id="calc-result">—</strong>
-                </div>
-                <p class="note" id="calc-rate">Chưa cấu hình tỷ lệ quy đổi.</p>
-              </article>
-            </div>
-            <div class="info-strip">
-              <span>ⓘ</span>
-              <p>
-                Token không được Kiro báo cáo sẽ được ước tính bằng số byte
-                UTF-8 / 4. Credit quy đổi là số nội bộ; credit Kiro chỉ hiển thị
-                khi upstream cung cấp, không phải số dư tài khoản.
-              </p>
-            </div>
-          </section>
-          <section id="requests" class="page" hidden>
-            <article class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Nhật ký gateway</h2>
-                  <p>Chỉ lưu metadata. Không lưu prompt hay câu trả lời.</p>
-                </div>
-                <button id="export" class="secondary">↓ Xuất CSV</button>
+        </div>
+
+        <section id="overview" class="page">
+          <article id="lane" class="lane">
+            <div class="lane-stripe" aria-hidden="true"></div>
+            <div class="lane-body">
+              <div class="lane-state">
+                <strong id="lane-title">—</strong>
+                <span id="lane-detail">Đang tải số liệu</span>
               </div>
-              <div class="filter-bar">
+              <div class="lane-rate">
+                <strong id="lane-rate">—</strong>
+                <span>thành công</span>
+              </div>
+            </div>
+          </article>
+
+          <dl class="tally">
+            <div>
+              <dt>Request</dt>
+              <dd id="metric-requests">—</dd>
+              <small id="metric-success"></small>
+            </div>
+            <div>
+              <dt>Token</dt>
+              <dd id="metric-tokens">—</dd>
+              <small id="metric-token-source"></small>
+            </div>
+            <div>
+              <dt>Credit quy đổi</dt>
+              <dd id="metric-estimated">—</dd>
+              <small>Theo tỷ lệ lúc request chạy</small>
+            </div>
+            <div>
+              <dt>Credit Kiro báo về</dt>
+              <dd id="metric-reported">—</dd>
+              <small id="metric-coverage"></small>
+            </div>
+          </dl>
+
+          <div class="grid">
+            <article class="panel span-2">
+              <header class="panel-head">
+                <h2>Lưu lượng theo ngày</h2>
+                <div class="legend">
+                  <span class="key-line"></span>Request
+                  <span class="key-bar"></span>Lỗi
+                </div>
+              </header>
+              <div id="chart" class="chart" aria-label="Biểu đồ request"></div>
+              <footer class="panel-foot">
+                <span id="latency">—</span><span id="updated">—</span>
+              </footer>
+            </article>
+            <article class="panel">
+              <header class="panel-head"><h2>Ngân sách tháng này</h2></header>
+              <div class="budget">
+                <strong id="budget-used">—</strong>
+                <span>credit đã dùng</span>
+              </div>
+              <progress
+                id="budget-progress"
+                max="100"
+                value="0"
+                aria-label="Tiến độ ngân sách"
+              ></progress>
+              <div class="row-between">
+                <span>Mục tiêu</span><strong id="budget-limit">—</strong>
+              </div>
+              <p class="note">
+                Chỉ để theo dõi, không chặn request. Tính theo tháng UTC.
+              </p>
+              <a href="#settings" class="text-link">Đặt mục tiêu</a>
+            </article>
+            <article class="panel">
+              <header class="panel-head"><h2>Theo agent</h2></header>
+              <div id="agent-list" class="agent-list"></div>
+            </article>
+            <article class="panel">
+              <header class="panel-head"><h2>Theo model</h2></header>
+              <div id="model-list" class="model-list"></div>
+            </article>
+            <article class="panel">
+              <header class="panel-head"><h2>Ước tính credit</h2></header>
+              <div class="two-fields">
+                <label
+                  >Input token<input
+                    id="calc-input"
+                    type="number"
+                    value="10000"
+                    min="0"
+                    max="1000000000"
+                    step="1" /></label
+                ><label
+                  >Output token<input
+                    id="calc-output"
+                    type="number"
+                    value="2000"
+                    min="0"
+                    max="1000000000"
+                    step="1"
+                /></label>
+              </div>
+              <div class="row-between calc">
+                <span>Credit</span><strong id="calc-result">—</strong>
+              </div>
+              <p class="note" id="calc-rate"></p>
+            </article>
+          </div>
+          <p class="footnote">
+            Token Kiro không báo về được ước tính bằng số byte UTF-8 chia 4.
+            Credit quy đổi là số nội bộ; credit Kiro chỉ có khi Kiro gửi về và
+            không phải số dư tài khoản.
+          </p>
+        </section>
+
+        <section id="requests" class="page" hidden>
+          <article class="panel flush">
+            <header class="panel-head padded">
+              <div class="filters">
                 <select id="status-filter" aria-label="Lọc trạng thái">
                   <option value="all">Mọi trạng thái</option>
                   <option value="success">Thành công</option>
                   <option value="error">Có lỗi</option>
                   <option value="active">Đang xử lý</option></select
                 ><select id="model-filter" aria-label="Lọc model">
-                  <option value="">Mọi model</option></select
-                ><span id="request-total"></span>
+                  <option value="">Mọi model</option>
+                </select>
+                <span id="request-total" class="muted"></span>
               </div>
-              <div class="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Request / thời gian</th>
-                      <th>Model</th>
-                      <th>Trạng thái</th>
-                      <th>Input / output</th>
-                      <th>Quy đổi / Kiro</th>
-                      <th>Độ trễ</th>
-                    </tr>
-                  </thead>
-                  <tbody id="request-rows"></tbody>
-                </table>
+              <button id="export" class="secondary">Xuất CSV</button>
+            </header>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Request</th>
+                    <th>Model</th>
+                    <th>Trạng thái</th>
+                    <th class="num">Token vào / ra</th>
+                    <th class="num">Credit quy đổi / Kiro</th>
+                    <th class="num">Độ trễ</th>
+                  </tr>
+                </thead>
+                <tbody id="request-rows"></tbody>
+              </table>
+            </div>
+            <footer class="pagination">
+              <span id="page-info" class="muted"></span>
+              <div>
+                <button id="prev" class="secondary">Trang trước</button
+                ><button id="next" class="secondary">Trang sau</button>
               </div>
-              <div class="pagination">
-                <span id="page-info"></span>
-                <div>
-                  <button id="prev" class="secondary">← Trước</button
-                  ><button id="next" class="secondary">Sau →</button>
+            </footer>
+          </article>
+          <p class="footnote">
+            Chỉ lưu metadata, không lưu prompt hay câu trả lời. Dấu — nghĩa là
+            Kiro không gửi số liệu credit.
+          </p>
+        </section>
+
+        <section id="settings" class="page" hidden>
+          <form id="settings-form" class="settings">
+            <div class="settings-main">
+              <article class="panel">
+                <header class="panel-head"><h2>Gateway</h2></header>
+                <label class="switch-row"
+                  ><span
+                    ><strong>Nhận request</strong
+                    ><small
+                      >Tắt để tạm dừng API. Dashboard vẫn dùng được.</small
+                    ></span
+                  ><input name="enabled" type="checkbox" role="switch"
+                /></label>
+                <div class="two-fields">
+                  <label
+                    >API region<input
+                      name="apiRegion"
+                      required
+                      placeholder="us-east-1" /></label
+                  ><label
+                    >Request mỗi phút<input
+                      name="requestsPerMinute"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      required
+                  /></label>
                 </div>
-              </div>
-            </article>
-            <p class="note">
-              — nghĩa là không có số liệu Kiro. Request đang xử lý chưa có
-              usage; số liệu stream bị ngắt có thể chỉ là một phần.
-            </p>
-          </section>
-          <section id="settings" class="page" hidden>
-            <form id="settings-form">
-              <div class="settings-layout">
-                <div class="settings-main">
-                  <article class="panel">
-                    <div class="panel-heading">
-                      <div>
-                        <h2>Gateway</h2>
-                        <p>Cấu hình hoạt động và các model cho phép.</p>
-                      </div>
-                    </div>
-                    <div class="form-body">
-                      <label class="toggle-row"
-                        ><span
-                          ><strong>Cho phép nhận request</strong
-                          ><small
-                            >Tắt để tạm dừng API, dashboard vẫn hoạt
-                            động.</small
-                          ></span
-                        ><input name="enabled" type="checkbox" role="switch"
-                      /></label>
-                      <div class="two-fields">
-                        <label
-                          >API region<input
-                            name="apiRegion"
-                            required
-                            placeholder="us-east-1" /></label
-                        ><label
-                          >Request / phút<input
-                            name="requestsPerMinute"
-                            type="number"
-                            min="1"
-                            max="1000"
-                            required
-                        /></label>
-                      </div>
-                      <label
-                        >Model ID
-                        <span class="field-help"
-                          >Mỗi dòng một model có trong tài khoản Kiro</span
-                        ><textarea name="models" rows="4" required></textarea>
-                      </label>
-                      <div class="two-fields">
-                        <label
-                          >Timeout (giây)<input
-                            name="timeoutSeconds"
-                            type="number"
-                            min="10"
-                            max="600"
-                            required /></label
-                        ><label
-                          >Lưu lịch sử (ngày)<input
-                            name="retentionDays"
-                            type="number"
-                            min="1"
-                            max="365"
-                            required
-                        /></label>
-                      </div>
-                      <p class="note">
-                        Dữ liệu cũ được xóa mỗi giờ theo thời hạn lưu. Giảm thời
-                        hạn có thể làm mất lịch sử tháng.
-                      </p>
-                    </div>
-                  </article>
-                  <article class="panel">
-                    <div class="panel-heading">
-                      <div>
-                        <h2>Quy đổi & ngân sách</h2>
-                        <p>Tự đặt đơn vị credit cho việc theo dõi nội bộ.</p>
-                      </div>
-                    </div>
-                    <div class="form-body">
-                      <div class="two-fields">
-                        <label
-                          >Credit / 1 triệu input token<input
-                            name="inputCreditsPerMillion"
-                            type="number"
-                            min="0"
-                            max="1000000000"
-                            step="any"
-                            required /></label
-                        ><label
-                          >Credit / 1 triệu output token<input
-                            name="outputCreditsPerMillion"
-                            type="number"
-                            min="0"
-                            max="1000000000"
-                            step="any"
-                            required
-                        /></label>
-                      </div>
-                      <label
-                        >Mục tiêu credit / tháng<input
-                          name="monthlyCreditBudget"
-                          type="number"
-                          min="0"
-                          max="1000000000"
-                          step="any"
-                          required
-                        /><span class="field-help"
-                          >Đặt 0 để bỏ mục tiêu. Đây không phải giới hạn
-                          cứng.</span
-                        ></label
-                      >
-                      <div class="formula">
-                        credit = (input × tỷ lệ input + output × tỷ lệ output) /
-                        1.000.000
-                      </div>
-                      <p class="note">
-                        Tỷ lệ mới áp dụng cho request mới. Lịch sử giữ nguyên tỷ
-                        lệ tại thời điểm phát sinh.
-                      </p>
-                    </div>
-                  </article>
-                  <div class="save-row">
-                    <span id="save-status" role="status"></span
-                    ><button class="primary" type="submit">
-                      Lưu cài đặt ↗
-                    </button>
-                  </div>
+                <label
+                  >Model cho phép
+                  <span class="help">Mỗi dòng một model ID có trong tài khoản Kiro</span
+                  ><textarea name="models" rows="4" required></textarea>
+                </label>
+                <div class="two-fields">
+                  <label
+                    >Timeout (giây)<input
+                      name="timeoutSeconds"
+                      type="number"
+                      min="10"
+                      max="600"
+                      required /></label
+                  ><label
+                    >Giữ lịch sử (ngày)<input
+                      name="retentionDays"
+                      type="number"
+                      min="1"
+                      max="365"
+                      required
+                  /></label>
                 </div>
-                <div class="settings-side">
-                  <article class="panel secrets-panel">
-                    <div class="panel-heading">
-                      <div>
-                        <h2>Cloudflare Secrets</h2>
-                        <p>Khóa chỉ tồn tại phía server.</p>
-                      </div>
-                      <span>⚿</span>
-                    </div>
-                    <div id="secret-list"></div>
-                    <div class="form-body">
-                      <p class="note">
-                        Quản lý giá trị bằng Wrangler hoặc Cloudflare Dashboard.
-                        Console này chỉ đọc trạng thái đã cấu hình.
-                      </p>
-                      <code>npx wrangler secret put NAME</code>
-                    </div>
-                  </article>
-                  <article class="panel">
-                    <div class="panel-heading">
-                      <div>
-                        <h2>Kết nối ứng dụng</h2>
-                        <p>OpenAI-compatible base URL</p>
-                      </div>
-                    </div>
-                    <div class="form-body">
-                      <code id="base-url"></code
-                      ><button
-                        id="copy-url"
-                        type="button"
-                        class="secondary full"
-                      >
-                        Sao chép URL
-                      </button>
-                      <p class="note">
-                        API key: giá trị GATEWAY_API_KEY.<br />Anthropic
-                        endpoint: /v1/messages.
-                      </p>
-                    </div>
-                  </article>
-                  <article class="panel">
-                    <div class="panel-heading">
-                      <div>
-                        <h2>Token vault</h2>
-                        <p>Token refresh mới được mã hóa khi lưu.</p>
-                      </div>
-                    </div>
-                    <div class="form-body">
-                      <p class="note">
-                        Chỉ reset sau khi đã upload credentials mới hoặc cần
-                        khôi phục VAULT_KEY. Thao tác này xóa token đã refresh
-                        đang lưu.
-                      </p>
-                      <button
-                        id="reset-vault"
-                        class="secondary danger full"
-                        type="button"
-                      >
-                        Reset token vault
-                      </button>
-                    </div>
-                  </article>
+                <p class="note">
+                  Lịch sử quá hạn được xóa mỗi giờ. Giữ dưới 31 ngày thì báo cáo
+                  tháng sẽ thiếu dữ liệu.
+                </p>
+              </article>
+              <article class="panel">
+                <header class="panel-head"><h2>Quy đổi credit</h2></header>
+                <div class="two-fields">
+                  <label
+                    >Credit / 1 triệu token vào<input
+                      name="inputCreditsPerMillion"
+                      type="number"
+                      min="0"
+                      max="1000000000"
+                      step="any"
+                      required /></label
+                  ><label
+                    >Credit / 1 triệu token ra<input
+                      name="outputCreditsPerMillion"
+                      type="number"
+                      min="0"
+                      max="1000000000"
+                      step="any"
+                      required
+                  /></label>
                 </div>
+                <label
+                  >Mục tiêu credit mỗi tháng<input
+                    name="monthlyCreditBudget"
+                    type="number"
+                    min="0"
+                    max="1000000000"
+                    step="any"
+                    required
+                  /><span class="help">Đặt 0 để bỏ mục tiêu.</span></label
+                >
+                <p class="note">
+                  Tỷ lệ mới chỉ áp dụng cho request mới. Lịch sử giữ tỷ lệ cũ.
+                </p>
+              </article>
+              <div class="save-row">
+                <span id="save-status" role="status" class="muted"></span
+                ><button class="primary" type="submit">Lưu cài đặt</button>
               </div>
-            </form>
-          </section>
-          <footer class="app-footer">
-            <span>TG Gateway · Independent gateway</span
-            ><span>Không liên kết với AWS hoặc Anthropic</span>
-          </footer>
-        </div>
+            </div>
+            <div class="settings-side">
+              <article class="panel">
+                <header class="panel-head"><h2>Cloudflare Secrets</h2></header>
+                <div id="secret-list" class="secret-list"></div>
+                <p class="note">
+                  Đổi giá trị bằng <code>npx wrangler secret put NAME</code>.
+                  Dashboard chỉ biết secret đã có hay chưa.
+                </p>
+              </article>
+              <article class="panel">
+                <header class="panel-head"><h2>Token vault</h2></header>
+                <p class="note">
+                  Chỉ reset sau khi đã upload credentials Kiro mới, hoặc khi mất
+                  VAULT_KEY. Gateway sẽ refresh lại token ở request tiếp theo.
+                </p>
+                <button id="reset-vault" class="secondary danger" type="button">
+                  Reset token vault
+                </button>
+              </article>
+            </div>
+          </form>
+        </section>
       </main>
     </div>
     <div id="toast" role="status" class="toast" hidden></div>
