@@ -761,7 +761,8 @@ export class Gateway extends DurableObject<Env> {
       result = new Completion(prepared.estimatedInput);
       const call = (token: string) =>
         fetch(
-          `https://runtime.${s.apiRegion}.kiro.dev/generateAssistantResponse`,
+          // runtime.<region>.kiro.dev answers Workers with Cloudflare error 1016 (530); use the AWS host.
+          `https://q.${s.apiRegion}.amazonaws.com/generateAssistantResponse`,
           {
             method: "POST",
             headers: {
