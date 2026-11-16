@@ -786,11 +786,14 @@ export class Gateway extends DurableObject<Env> {
       }
       if (!response.ok) {
         const status = response.status;
-        await response.body?.cancel();
+        const { reason, raw } = await upstreamReason(response);
+        // Only visible to the account owner in `wrangler tail`.
+        console.warn(`kiro_http_${status}: ${reason || raw}`);
         throw new HttpError(
           [400, 402, 429].includes(status) ? status : 502,
           "kiro_http_" + status,
-          `Kiro returned HTTP ${status}.`,
+          // Clients get only the structured AWS error type/message, never the raw body.
+          `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
         );
       }
       sent = true;
@@ -872,6 +875,23 @@ export class Gateway extends DurableObject<Env> {
         mode,
       );
     }
+  }
+}
+
+/** Structured AWS error (`__type`/`message`) from an upstream body, plus a raw excerpt for logs. */
+async function upstreamReason(response: Response): Promise<{ reason: string; raw: string }> {
+  let text = "";
+  try {
+    text = (await response.text()).slice(0, 2000);
+  } catch {}
+  const clean = (v: string) => v.replace(/\s+/g, " ").trim().slice(0, 300);
+  try {
+    const data = JSON.parse(text) as Record<string, unknown>;
+    const type = typeof data.__type === "string" ? data.__type.split("#").pop() : "";
+    const message = [data.message, data.Message, data.reason].find((v) => typeof v === "string") as string | undefined;
+    return { reason: clean([type, message].filter(Boolean).join(" – ")), raw: clean(text) };
+  } catch {
+    return { reason: "", raw: clean(text) };
   }
 }
 
