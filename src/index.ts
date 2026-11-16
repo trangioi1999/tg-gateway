@@ -18,6 +18,15 @@ import { prepare, Completion, credits, object } from "./protocol.ts";
 import { KiroAuth } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
+import {
+  CompatStream,
+  CompatUsage,
+  fromUpstreamJson,
+  providerKey,
+  routeModel,
+  toUpstream,
+  PROVIDERS,
+} from "./compat.ts";
 
 const json = (
   data: unknown,
@@ -77,6 +86,12 @@ export class Gateway extends DurableObject<Env> {
       this.sql.exec(
         "ALTER TABLE requests ADD COLUMN client TEXT NOT NULL DEFAULT 'other'",
       );
+    if (!columns.has("provider"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN provider TEXT NOT NULL DEFAULT 'kiro'",
+      );
+    if (!columns.has("cost_usd"))
+      this.sql.exec("ALTER TABLE requests ADD COLUMN cost_usd REAL");
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL)`,
     );
@@ -182,6 +197,8 @@ export class Gateway extends DurableObject<Env> {
                 "SESSION_SECRET",
                 "VAULT_KEY",
                 "KIRO_CREDENTIALS",
+                "OPENROUTER_API_KEY",
+                "DEPLOY_API_KEY",
               ].map((k) => [k, Boolean(this.env[k as keyof Env])]),
             ),
           });
@@ -238,7 +255,8 @@ export class Gateway extends DurableObject<Env> {
               id,
               object: "model",
               created: 0,
-              owned_by: "kiro",
+              owned_by:
+                PROVIDERS.find((p) => id.startsWith(p.prefix))?.id ?? "kiro",
             })),
           });
         if (
@@ -395,6 +413,7 @@ export class Gateway extends DurableObject<Env> {
       "id",
       "started",
       "client",
+      "provider",
       "model",
       "status",
       "latency",
@@ -404,6 +423,7 @@ export class Gateway extends DurableObject<Env> {
       "output_source",
       "estimated_credits",
       "reported_credits",
+      "cost_usd",
       "input_rate",
       "output_rate",
       "error_code",
@@ -440,7 +460,7 @@ export class Gateway extends DurableObject<Env> {
       s.outputCreditsPerMillion,
       detectClient(request.headers),
     );
-    let result: Completion | undefined,
+    let result: Completion | CompatUsage | undefined,
       recorded = false,
       sent = false;
     const abort = new AbortController();
@@ -459,7 +479,7 @@ export class Gateway extends DurableObject<Env> {
       const input = sent ? (result?.inputTokens ?? 0) : 0,
         output = sent ? (result?.outputTokens ?? 0) : 0;
       this.sql.exec(
-        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=? WHERE id=?`,
+        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=?,cost_usd=? WHERE id=?`,
         Date.now(),
         status,
         Date.now() - started,
@@ -471,6 +491,7 @@ export class Gateway extends DurableObject<Env> {
         credits(input, output, s),
         code,
         result?.contextPercent ?? null,
+        result instanceof CompatUsage ? result.costUsd : null,
         id,
       );
     };
@@ -487,6 +508,126 @@ export class Gateway extends DurableObject<Env> {
         throw new HttpError(503, "gateway_paused", "Gateway is paused.");
       this.limit("gateway", s.requestsPerMinute);
       const raw = await readJson(request);
+      const route = object(raw) ? routeModel(raw.model, s) : null;
+      if (route) {
+        // OpenAI-compatible provider (OpenRouter, deploy.com): no Kiro auth involved.
+        const compat = toUpstream(raw, mode, route);
+        this.sql.exec(
+          "UPDATE requests SET model=?,streamed=?,provider=? WHERE id=?",
+          route.publicModel,
+          Number(compat.stream),
+          route.provider.id,
+          id,
+        );
+        const key = providerKey(this.env, route.provider);
+        const usage = new CompatUsage(compat.estimatedInput);
+        result = usage;
+        const response = await fetch(route.provider.url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+            Accept: compat.stream ? "text/event-stream" : "application/json",
+            ...(route.provider.id === "openrouter"
+              ? { "X-Title": "tg-gateway" }
+              : {}),
+          },
+          body: JSON.stringify(compat.payload),
+          signal: abort.signal,
+        });
+        if (!response.ok) {
+          const status = response.status;
+          let detail = "";
+          try {
+            const data = (await response.json()) as Record<string, any>;
+            if (typeof data?.error?.message === "string")
+              detail = " " + data.error.message.slice(0, 300);
+          } catch {}
+          throw new HttpError(
+            [400, 402, 404, 413, 429].includes(status) ? status : 502,
+            "upstream_http_" + status,
+            `${route.provider.label} returned HTTP ${status}.${detail}`,
+          );
+        }
+        sent = true;
+        const headers = {
+          "x-request-id": id,
+          "x-gateway-provider": route.provider.id,
+          "Cache-Control": "no-store",
+        };
+        if (!compat.stream) {
+          const body = fromUpstreamJson(
+            await response.json(),
+            mode,
+            id,
+            route.publicModel,
+            usage,
+          );
+          finish(200);
+          return json(body, 200, headers);
+        }
+        if (!response.body)
+          throw new HttpError(502, "empty_upstream", "Upstream returned no body.");
+        const converter = new CompatStream(
+          mode,
+          id,
+          route.publicModel,
+          usage,
+          compat.includeUsage,
+        );
+        const transform = new TransformStream<Uint8Array, Uint8Array>(),
+          writer = transform.writable.getWriter(),
+          enc = new TextEncoder(),
+          dec = new TextDecoder();
+        let disconnected = false;
+        writer.closed.catch(() => {
+          disconnected = true;
+          abort.abort();
+        });
+        const write = (text: string) =>
+          text ? writer.write(enc.encode(text)) : Promise.resolve();
+        const upstream = response.body.getReader();
+        const task = (async () => {
+          try {
+            await write(converter.start());
+            let bytes = 0;
+            for (;;) {
+              const { value, done } = await upstream.read();
+              if (done) break;
+              bytes += value.length;
+              if (bytes > 16 * 1024 * 1024)
+                throw new HttpError(502, "output_limit", "Upstream output exceeded 16 MiB.");
+              await write(converter.feed(dec.decode(value, { stream: true })));
+            }
+            const closing = converter.feed(dec.decode()) + converter.end();
+            finish(200);
+            await write(closing);
+          } catch (error) {
+            const e = asError(error);
+            const code = disconnected
+              ? "client_disconnect"
+              : e instanceof HttpError
+                ? e.code
+                : "stream_error";
+            finish(disconnected ? 499 : e instanceof HttpError ? e.status : 502, code);
+            if (!disconnected)
+              await write(
+                new Formatter(mode, id, route.publicModel).error(code),
+              ).catch(() => {});
+          } finally {
+            await upstream.cancel().catch(() => {});
+            await writer.close().catch(() => {});
+          }
+        })();
+        this.ctx.waitUntil(task);
+        return new Response(transform.readable, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
       const prepared = prepare(raw, mode, s);
       this.sql.exec(
         "UPDATE requests SET model=?,streamed=? WHERE id=?",

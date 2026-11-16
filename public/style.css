@@ -1595,3 +1595,25 @@ body.loading {
 :root[data-theme="dark"] .topbar {
   background: var(--surface);
 }
+/* Long provider-prefixed model IDs must not squeeze the logo tile. */
+.model-icon,
+.model-row > .agent {
+  flex: none;
+}
+.model-row strong,
+td {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .topbar .breadcrumb,
+  .topbar .slash,
+  .topbar .avatar {
+    display: none;
+  }
+  .topbar-right {
+    gap: 8px;
+  }
+  .badge {
+    white-space: nowrap;
+  }
+}

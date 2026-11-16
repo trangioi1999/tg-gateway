@@ -6,6 +6,8 @@ export interface Env {
   SESSION_SECRET?: string;
   VAULT_KEY?: string;
   KIRO_CREDENTIALS?: string;
+  OPENROUTER_API_KEY?: string;
+  DEPLOY_API_KEY?: string;
 }
 export interface Settings {
   enabled: boolean;
@@ -59,7 +61,8 @@ export function validateSettings(raw: unknown): Settings {
     !s.models.length ||
     s.models.length > 40 ||
     s.models.some(
-      (m) => typeof m !== "string" || !/^[a-zA-Z0-9._:-]{1,100}$/.test(m),
+      // "/" allows provider-prefixed IDs such as openrouter/deepseek/deepseek-chat.
+      (m) => typeof m !== "string" || !/^[a-zA-Z0-9._:/-]{1,160}$/.test(m),
     )
   )
     throw new HttpError(

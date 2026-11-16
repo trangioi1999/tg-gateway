@@ -26,7 +26,19 @@ function frame(type, data) {
 }
 const content = frame("assistantResponseEvent", { content: "Hello world" }),
   meter = frame("meteringEvent", { usage: 0.125 });
-const upstream = `export default {async fetch(request){const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
+// OpenAI-compatible providers: SSE with text, a tool call and usage; JSON when not streaming.
+const compatSse = [
+  { choices: [{ delta: { content: "Hi from " } }] },
+  { choices: [{ delta: { content: "compat" } }] },
+  { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_9", function: { name: "Bash", arguments: '{"command":' } }] } }] },
+  { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"ls"}' } }] }, finish_reason: "tool_calls" }] },
+  { choices: [], usage: { prompt_tokens: 120, completion_tokens: 9, cost: 0.0004 } },
+]
+  .map((c) => "data: " + JSON.stringify(c) + "\n\n")
+  .join("") + ": keep-alive\n\ndata: [DONE]\n\n";
+const compatJson = { id: "x", object: "chat.completion", model: "deepseek-ai/deepseek-v4.1-flash-1017", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "Deploy says hi" } }], usage: { prompt_tokens: 11, completion_tokens: 4 } };
+const compat = `if(['openrouter.ai','api-cdn.deploy.com'].includes(new URL(request.url).hostname)){const key=request.headers.get('authorization');if(key!=='Bearer or-key'&&key!=='Bearer deploy-key')return Response.json({error:{message:'bad key'}},{status:401});const body=await request.json();if(body.model.startsWith('openrouter/')||body.model.startsWith('deploy/'))return Response.json({error:{message:'prefix leaked'}},{status:400});if(body.stream)return new Response(${JSON.stringify(compatSse)},{headers:{'Content-Type':'text/event-stream'}});return Response.json(${JSON.stringify(compatJson)});}`;
+const upstream = `export default {async fetch(request){${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
 test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors and CSV", async () => {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
@@ -46,6 +58,8 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
             GATEWAY_API_KEY: "gateway-test-key",
             SESSION_SECRET: "test-secret",
             VAULT_KEY: "a".repeat(64),
+            OPENROUTER_API_KEY: "or-key",
+            DEPLOY_API_KEY: "deploy-key",
             KIRO_CREDENTIALS: JSON.stringify({
               refreshToken: "test",
               accessToken: "access",
@@ -230,6 +244,61 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
       "text/csv; charset=utf-8",
     );
     assert.match(await exported.text(), /input_rate/);
+    // OpenAI-compatible providers selected by model prefix.
+    s.models = [
+      ...s.models,
+      "openrouter/deepseek/deepseek-chat-v3.1",
+      "deploy/deepseek-ai/deepseek-v4.1-flash-1017",
+    ];
+    assert.equal(
+      (await send("/api/settings", { method: "PUT", body: JSON.stringify(s) })).status,
+      200,
+    );
+    const viaOpenRouter = await send("/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": "gateway-test-key", "user-agent": "claude-cli/2.1.325 (external, cli)" },
+      body: JSON.stringify({
+        model: "openrouter/deepseek/deepseek-chat-v3.1",
+        stream: true,
+        max_tokens: 1000,
+        thinking: { type: "enabled", budget_tokens: 2000 },
+        tools: [{ name: "Bash", input_schema: { type: "object", properties: {} } }],
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      }),
+    });
+    assert.equal(viaOpenRouter.status, 200);
+    assert.equal(viaOpenRouter.headers.get("x-gateway-provider"), "openrouter");
+    const orText = await viaOpenRouter.text();
+    assert.match(orText, /Hi from /);
+    assert.match(orText, /"name":"Bash"/);
+    assert.match(orText, /"stop_reason":"tool_use"/);
+    assert.match(orText, /message_stop/);
+    const viaDeploy = await send("/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer gateway-test-key" },
+      body: JSON.stringify({
+        model: "deploy/deepseek-ai/deepseek-v4.1-flash-1017",
+        messages: [{ role: "user", content: "hi" }],
+        temperature: 0.3,
+      }),
+    });
+    assert.equal(viaDeploy.status, 200);
+    const deployBody = await viaDeploy.json();
+    assert.equal(deployBody.choices[0].message.content, "Deploy says hi");
+    assert.equal(deployBody.model, "deploy/deepseek-ai/deepseek-v4.1-flash-1017");
+    const compatRows = (await (await send("/api/requests?days=1")).json()).items.filter(
+      (r) => r.provider !== "kiro",
+    );
+    assert.equal(compatRows.length, 2);
+    const orRow = compatRows.find((r) => r.provider === "openrouter");
+    assert.equal(orRow.status, 200);
+    assert.equal(orRow.input_tokens, 120);
+    assert.equal(orRow.input_source, "reported");
+    assert.equal(orRow.cost_usd, 0.0004);
+    assert.equal(orRow.client, "claude-code");
+    assert.equal(compatRows.find((r) => r.provider === "deploy").output_tokens, 4);
+    const models = await (await send("/v1/models", { headers: { Authorization: "Bearer gateway-test-key" } })).json();
+    assert.equal(models.data.find((m) => m.id.startsWith("deploy/")).owned_by, "deploy");
     s.enabled = false;
     await send("/api/settings", { method: "PUT", body: JSON.stringify(s) });
     assert.equal((await chat("hello")).status, 503);

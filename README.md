@@ -133,6 +133,27 @@ Extension dùng chung Claude Code CLI nên đọc cùng file này. Model ID dạ
 
 `/v1/models` trả **allowlist cấu hình**, không phải xác nhận model khả dụng từ Kiro. Kiểm tra model trong tài khoản Kiro và cập nhật Settings.
 
+## Nhà cung cấp khác: OpenRouter, deploy.com
+
+Ngoài Kiro, gateway gọi được nhà cung cấp tương thích OpenAI. Chọn bằng tiền tố model ID trong **Settings → Model cho phép**:
+
+| Tiền tố | Nhà cung cấp | Secret | Ví dụ |
+| --- | --- | --- | --- |
+| *(không có)* | Kiro | `KIRO_CREDENTIALS` | `claude-sonnet-4.5` |
+| `openrouter/` | OpenRouter | `OPENROUTER_API_KEY` | `openrouter/deepseek/deepseek-chat-v3.1` |
+| `deploy/` | deploy.com | `DEPLOY_API_KEY` | `deploy/deepseek-ai/deepseek-v4.1-flash-1017` |
+
+```sh
+npx wrangler secret put OPENROUTER_API_KEY
+npx wrangler secret put DEPLOY_API_KEY
+```
+
+- Gateway bỏ tiền tố trước khi gọi upstream. Client gọi đúng ID có tiền tố, ví dụ Claude Code: `ANTHROPIC_MODEL=openrouter/deepseek/deepseek-chat-v3.1`.
+- Client Anthropic (Claude Code) được chuyển đổi sang chat completions: system, text, ảnh, tool call/tool result, `tool_choice`, `max_tokens`, `stop_sequences`, `temperature/top_p/top_k`. `thinking` thành `reasoning` (OpenRouter) hoặc `reasoning_effort: none` khi tắt (deploy.com). Nội dung reasoning trả về không được chuyển thành block thinking. Text stream liên tục; tool call được gom đủ rồi gửi một lần.
+- Client OpenAI được chuyển tiếp nguyên trường, chỉ thay model.
+- Token lấy từ `usage` của nhà cung cấp (ghi là *reported*); OpenRouter trả thêm chi phí USD, lưu ở cột `cost_usd` và hiện cạnh credit trong lịch sử.
+- Không qua Kiro nên không cần credentials Kiro và không có credit Kiro. Tool calling phụ thuộc model/nhà cung cấp: tài liệu deploy.com hiện không nói tới tool calling, nên Claude Code có thể không dùng được tool với model đó.
+
 ## Token và credit: ý nghĩa số liệu
 
 1. Nếu event upstream trả `inputTokens`/`outputTokens`, gateway ghi nhận token là **reported**.

@@ -40,13 +40,14 @@ function agentBadge(id, size = "") {
   const a = agent(id);
   return `<span class="agent ${size}" title="${esc(a.label)}" aria-hidden="true">${a.brand ? brandIcon(a.brand) : esc(a.glyph)}</span>`;
 }
+const PROVIDER_LABELS = { kiro: "Kiro", openrouter: "OpenRouter", deploy: "deploy.com" };
 const MODEL_BRANDS = [
-  [/^openrouter\//i, "openrouter"],
   [/claude|sonnet|opus|haiku/i, "claude"],
   [/deepseek/i, "deepseek"],
   [/qwen/i, "qwen"],
   [/gemini/i, "gemini"],
-  [/^(gpt|o\d|chatgpt)|openai/i, "openai"],
+  [/(^|\/)(gpt|o\d|chatgpt)|openai/i, "openai"],
+  [/^openrouter\//i, "openrouter"],
 ];
 function modelBrand(model) {
   return MODEL_BRANDS.find(([pattern]) => pattern.test(model ?? ""))?.[1];
@@ -262,7 +263,7 @@ async function loadRequests() {
     ? data.items
         .map(
           (r) =>
-            `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span title="${esc(r.id)}">${esc(agent(r.client).label)}</span><small>${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td>${modelMark(r.model)}${esc(r.model || "—")}<small>${r.streamed ? "Streaming" : "JSON"} · ${r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td><span class="status ${r.status === 0 ? "pending" : r.status >= 400 ? "error-status" : ""}">${r.status === 0 ? "Đang xử lý" : r.status}</span>${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td>${number(r.input_tokens)} / ${number(r.output_tokens)}<small>${r.input_source === "reported" ? "Input báo cáo" : r.input_source === "estimated" ? "Input ước tính" : "Input chưa có"} · ${r.output_source === "reported" ? "output báo cáo" : r.output_source === "estimated" ? "output ước tính" : "output chưa có"}</small></td><td>${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}<small>credit</small></td><td>${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`,
+            `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span title="${esc(r.id)}">${esc(agent(r.client).label)}</span><small>${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td>${modelMark(r.model)}${esc(r.model || "—")}<small>${esc(PROVIDER_LABELS[r.provider] ?? "Kiro")} · ${r.streamed ? "Streaming" : "JSON"} · ${r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td><span class="status ${r.status === 0 ? "pending" : r.status >= 400 ? "error-status" : ""}">${r.status === 0 ? "Đang xử lý" : r.status}</span>${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td>${number(r.input_tokens)} / ${number(r.output_tokens)}<small>${r.input_source === "reported" ? "Input báo cáo" : r.input_source === "estimated" ? "Input ước tính" : "Input chưa có"} · ${r.output_source === "reported" ? "output báo cáo" : r.output_source === "estimated" ? "output ước tính" : "output chưa có"}</small></td><td>${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}<small>${r.cost_usd == null ? "credit" : "credit · $" + number(r.cost_usd, 6)}</small></td><td>${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`,
         )
         .join("")
     : `<tr><td colspan="6">${empty("Chưa có request phù hợp", "Thử thay đổi khoảng thời gian hoặc bộ lọc.")}</td></tr>`;
