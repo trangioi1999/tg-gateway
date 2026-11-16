@@ -574,6 +574,26 @@ $("reset-vault").addEventListener("click", async () => {
     toast(error.message);
   }
 });
+$("clear-history").addEventListener("click", async () => {
+  if (
+    !confirm(
+      "Xóa toàn bộ lịch sử request? Số liệu tổng quan và credit tháng này cũng về 0. Không hoàn tác được — muốn giữ lại thì Xuất CSV trước.",
+    )
+  )
+    return;
+  const button = $("clear-history");
+  button.disabled = true;
+  try {
+    const { deleted } = await api("/api/requests", { method: "DELETE" });
+    page = 1;
+    toast(`Đã xóa ${number(deleted)} request.`);
+    await loadRequests();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
 $("export").addEventListener("click", async () => {
   const button = $("export");
   button.disabled = true;

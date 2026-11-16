@@ -343,6 +343,9 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     s.enabled = false;
     await send("/api/settings", { method: "PUT", body: JSON.stringify(s) });
     assert.equal((await chat("hello")).status, 503);
+    const cleared = await (await send("/api/requests", { method: "DELETE" })).json();
+    assert.ok(cleared.deleted >= allRows.length);
+    assert.equal((await (await send("/api/requests?days=1")).json()).total, 0);
     await send("/api/session", { method: "DELETE" });
     cookie = "";
     assert.equal((await send("/api/overview")).status, 401);

@@ -242,6 +242,11 @@ export class Gateway extends DurableObject<Env> {
         }
         if (path === "/api/overview" && request.method === "GET")
           return this.overview(url);
+        if (path === "/api/requests" && request.method === "DELETE") {
+          // In-flight rows are kept; their finish handler still needs to update them.
+          const deleted = this.sql.exec("DELETE FROM requests WHERE status<>0").rowsWritten;
+          return json({ deleted });
+        }
         if (path === "/api/requests" && request.method === "GET")
           return this.requests(url);
         if (path === "/api/export" && request.method === "GET")
