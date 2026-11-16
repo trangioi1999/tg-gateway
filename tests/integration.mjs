@@ -131,24 +131,99 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     assert.match(streamText, /\[DONE\]/);
     const anthropic = await chat("hello", true, true);
     assert.match(await anthropic.text(), /message_stop/);
-    const broken = await chat("truncated", true);
-    const brokenText = await broken.text();
-    assert.match(brokenText, /incomplete_stream/);
-    assert.ok(!brokenText.includes("[DONE]"));
+    // Clean end of stream without metering: answer is delivered, ledger flags it.
+    const quiet = await chat("truncated", true);
+    const quietText = await quiet.text();
+    assert.match(quietText, /Hello world/);
+    assert.match(quietText, /\[DONE\]/);
+    // Request shaped like Claude Code 2.1.x (captured): thinking + temperature, system blocks
+    // with cache_control, metadata, context_management, tools and a tool round-trip.
+    const claudeCode = await send("/v1/messages?beta=true", {
+      method: "POST",
+      headers: {
+        "x-api-key": "gateway-test-key",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "claude-code-20250219",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 32000,
+        temperature: 1,
+        thinking: { type: "enabled", budget_tokens: 31999 },
+        context_management: { edits: [] },
+        metadata: { user_id: "test" },
+        stream: true,
+        system: [
+          { type: "text", text: "You are Claude Code." },
+          { type: "text", text: "Be brief.", cache_control: { type: "ephemeral" } },
+        ],
+        tools: [
+          {
+            name: "Bash",
+            description: "Run a command",
+            input_schema: {
+              type: "object",
+              properties: { command: { type: "string" } },
+              required: ["command"],
+            },
+          },
+        ],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "list files" }] },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Running ls." },
+              { type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: [{ type: "text", text: "README.md" }],
+              },
+              { type: "text", text: "summarize", cache_control: { type: "ephemeral" } },
+            ],
+          },
+        ],
+      }),
+    });
+    assert.equal(claudeCode.status, 200);
+    assert.equal(
+      claudeCode.headers.get("x-gateway-ignored-params"),
+      "thinking,temperature",
+    );
+    const claudeCodeText = await claudeCode.text();
+    assert.match(claudeCodeText, /message_stop/);
+    const start = JSON.parse(
+      claudeCodeText.match(/event: message_start\ndata: (.*)/)[1],
+    );
+    assert.ok(start.message.usage.input_tokens > 0);
     const limited = await chat("rate-limit");
     assert.equal(limited.status, 429);
     assert.ok(!(await limited.text()).includes("private upstream body"));
     const rows = await (await send("/api/requests")).json();
-    assert.equal(rows.total, 5);
+    assert.equal(rows.total, 6);
     assert.equal(
       rows.items.find((r) => r.id === before.items[0].id).estimated_credits,
       firstCredits,
     );
-    assert.equal(rows.items.filter((r) => r.status === 200).length, 3);
-    assert.equal(rows.items.filter((r) => r.status >= 400).length, 2);
+    assert.equal(rows.items.filter((r) => r.status === 200).length, 5);
+    assert.equal(rows.items.filter((r) => r.status >= 400).length, 1);
+    assert.equal(
+      rows.items.filter((r) => r.error_code === "no_completion_signal").length,
+      1,
+    );
+    assert.equal(
+      rows.items.find((r) => r.endpoint === "/v1/messages" && r.model).model,
+      "claude-sonnet-4.5",
+    );
     const totals = (await (await send("/api/overview")).json()).totals;
-    assert.equal(totals.reported_credits, 0.375);
-    assert.equal(totals.reported_requests, 3);
+    assert.equal(totals.reported_credits, 0.5);
+    assert.equal(totals.reported_requests, 4);
     const exported = await send("/api/export");
     assert.equal(
       exported.headers.get("content-type"),

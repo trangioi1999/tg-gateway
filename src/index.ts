@@ -503,7 +503,9 @@ export class Gateway extends DurableObject<Env> {
       // Retry only an explicit authentication rejection, never a generated/partially streamed request.
       if (response.status === 401 || response.status === 403) {
         await response.body?.cancel();
-        response = await call((await this.auth.get(true)).accessToken!);
+        response = await call(
+          (await this.auth.get(auth.accessToken)).accessToken!,
+        );
       }
       if (!response.ok) {
         const status = response.status;
@@ -520,10 +522,16 @@ export class Gateway extends DurableObject<Env> {
         "x-request-id": id,
         "x-kiro-token-usage": "estimated-unless-reported",
         "Cache-Control": "no-store",
+        ...(prepared.ignored.length
+          ? { "x-gateway-ignored-params": prepared.ignored.join(",") }
+          : {}),
       };
+      // Success without metering/context events: answer delivered, flagged in the ledger.
+      const unsignalled = (c: Completion) =>
+        c.terminal ? null : "no_completion_signal";
       if (!prepared.stream) {
         await consume(response, prepared, result);
-        finish(200);
+        finish(200, unsignalled(result));
         return json(formatter.json(result), 200, headers);
       }
       const transform = new TransformStream<Uint8Array, Uint8Array>(),
@@ -538,12 +546,12 @@ export class Gateway extends DurableObject<Env> {
       const completion = result;
       const task = (async () => {
         try {
-          await write(formatter.start());
+          await write(formatter.start(completion.inputTokens));
           await consume(response, prepared, completion, async (delta) => {
             if (delta.text) await write(formatter.text(delta.text));
             if (delta.tool) await write(formatter.tool(delta.tool));
           });
-          finish(200);
+          finish(200, unsignalled(completion));
           await write(formatter.finish(completion, prepared.includeUsage));
         } catch (error) {
           const e = asError(error);

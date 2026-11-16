@@ -111,8 +111,17 @@ test("validates dangling tools, unsupported inputs and models", () => {
   assert.throws(() =>
     prepare({ ...request, model: "not-enabled" }, "openai", defaults),
   );
-  assert.throws(() =>
-    prepare({ ...request, temperature: 0.5 }, "openai", defaults),
+  assert.deepEqual(
+    prepare(
+      { ...request, temperature: 0.5, thinking: { type: "disabled" } },
+      "openai",
+      defaults,
+    ).ignored,
+    ["thinking", "temperature"],
+  );
+  assert.throws(
+    () => prepare({ ...request, stop: ["END"] }, "openai", defaults),
+    /stop is not supported/,
   );
   assert.throws(() =>
     prepare(
@@ -226,7 +235,9 @@ test("stream errors and unfinished tool JSON never report success", () => {
       }),
     /incomplete tool/,
   );
-  assert.throws(() => new Completion(0).validateEnd(), /completion signal/);
+  const quiet = new Completion(0);
+  quiet.validateEnd();
+  assert.equal(quiet.terminal, false);
 });
 test("consume + both response formats preserve tool results and metering", async () => {
   const frames = [
@@ -274,4 +285,27 @@ test("credit conversion and settings validation", () => {
     validateSettings({ ...defaults, apiRegion: "evil.com/" }),
   );
   assert.deepEqual(validateSettings(defaults), defaults);
+});
+
+test("anthropic text blocks are joined with a newline", () => {
+  const prepared = prepare(
+    {
+      model: "claude-sonnet-4.5",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Hello" },
+            { type: "text", text: "World", cache_control: { type: "ephemeral" } },
+          ],
+        },
+      ],
+    },
+    "anthropic",
+    defaults,
+  );
+  assert.equal(
+    prepared.payload.conversationState.currentMessage.userInputMessage.content,
+    "Hello\nWorld",
+  );
 });

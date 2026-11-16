@@ -25,7 +25,8 @@ export class Formatter {
   private chunk(delta: unknown, finish: string | null = null) {
     return `data: ${JSON.stringify({ id: this.id, object: "chat.completion.chunk", created: this.created, model: this.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
   }
-  start() {
+  /** Anthropic clients (e.g. Claude Code) read prompt size from message_start, so send the estimate up front. */
+  start(inputTokens = 0) {
     return this.mode === "openai"
       ? this.chunk({ role: "assistant", content: "" })
       : this.event("message_start", {
@@ -38,7 +39,7 @@ export class Formatter {
             model: this.model,
             stop_reason: null,
             stop_sequence: null,
-            usage: { input_tokens: 0, output_tokens: 0 },
+            usage: { input_tokens: inputTokens, output_tokens: 0 },
           },
         });
   }

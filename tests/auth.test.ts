@@ -82,3 +82,44 @@ test("SSO refresh sends OIDC client credentials to the auth region", async () =>
     globalThis.fetch = original;
   }
 });
+
+test("a rejected token triggers one shared refresh; replaced tokens are reused", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  const env = {
+    KIRO_CREDENTIALS: JSON.stringify({
+      refreshToken: "r",
+      accessToken: "stale",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    }),
+    VAULT_KEY: "c".repeat(64),
+  } as Env;
+  globalThis.fetch = async () => {
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return Response.json({ accessToken: "fresh-" + calls, expiresIn: 3600 });
+  };
+  try {
+    const auth = new KiroAuth(
+      {
+        get: async () => undefined,
+        put: async () => {},
+      } as unknown as DurableObjectStorage,
+      env,
+    );
+    assert.equal((await auth.get()).accessToken, "stale");
+    assert.equal(calls, 0);
+    const results = await Promise.all([
+      auth.get("stale"),
+      auth.get("stale"),
+      auth.get(),
+    ]);
+    assert.equal(calls, 1);
+    assert.ok(results.every((r) => r.accessToken === "fresh-1"));
+    // A late caller still holding the old token gets the replacement without refreshing again.
+    assert.equal((await auth.get("stale")).accessToken, "fresh-1");
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

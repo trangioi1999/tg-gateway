@@ -16,6 +16,8 @@ export interface Prepared {
   model: string;
   stream: boolean;
   includeUsage: boolean;
+  /** Request fields accepted but not forwarded upstream. */
+  ignored: string[];
   payload: Obj;
   estimatedInput: number;
 }
@@ -64,16 +66,17 @@ export function prepare(
     invalid("Model is not enabled. Check /v1/models and Settings.");
   if (body.stream !== undefined && typeof body.stream !== "boolean")
     invalid("stream must be boolean.");
+  // Sampling/thinking hints change style, not the shape of the answer. Clients such as
+  // Claude Code always send them, so they are dropped and reported via a response header.
+  const ignored = ["thinking", "temperature", "top_p", "top_k"].filter(
+    (field) => body[field] != null,
+  );
   // Reject semantics that cannot be faithfully translated, rather than silently ignoring them.
   for (const field of [
     "response_format",
-    "thinking",
     "reasoning_effort",
     "stop",
     "stop_sequences",
-    "temperature",
-    "top_p",
-    "top_k",
     "seed",
     "logprobs",
     "frequency_penalty",
@@ -151,7 +154,8 @@ export function prepare(
     } else if (mode === "anthropic" && Array.isArray(message.content)) {
       for (const block of message.content) {
         if (!object(block)) invalid("Invalid content block.");
-        if (block.type === "text") content += textContent(block.text);
+        if (block.type === "text")
+          content += (content ? "\n" : "") + textContent(block.text);
         else if (block.type === "tool_use" && role === "assistant") {
           if (
             typeof block.id !== "string" ||
@@ -276,6 +280,7 @@ export function prepare(
     model,
     stream: body.stream === true,
     includeUsage: body.stream_options?.include_usage === true,
+    ignored,
     payload,
     estimatedInput: estimateTokens(JSON.stringify(payload)),
   };
@@ -497,13 +502,18 @@ export class Completion {
           (this.active?.arguments ?? ""),
       );
   }
+  /**
+   * A half-received tool call is unusable, so it fails the request. A clean end of
+   * stream without metering/context events is accepted; callers flag it via `terminal`
+   * so an upstream protocol change does not turn delivered answers into errors.
+   */
   validateEnd() {
     this.finalize();
-    if (this.active || !this.terminal)
+    if (this.active)
       throw new HttpError(
         502,
         "incomplete_stream",
-        "Kiro closed the stream without a completion signal.",
+        "Kiro closed the stream in the middle of a tool call.",
       );
   }
   usage() {

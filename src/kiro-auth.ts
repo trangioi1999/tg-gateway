@@ -19,18 +19,32 @@ export class KiroAuth {
   env: Env;
   inflight?: Promise<Credentials>;
   cached?: Stored;
+  /** Access token upstream rejected; any load that would return it refreshes instead. */
+  rejected?: string;
   constructor(storage: DurableObjectStorage, env: Env) {
     this.storage = storage;
     this.env = env;
   }
-  async get(force = false): Promise<Credentials> {
-    if (this.inflight) return this.inflight;
-    this.inflight = this.load(force).finally(() => {
-      this.inflight = undefined;
-    });
-    return this.inflight;
+  /**
+   * Single-flight credential load. Pass `rejected` (the token upstream refused) to force a
+   * refresh. Concurrent callers that saw the same rejection share one refresh, and a caller
+   * whose token was already replaced by another refresh reuses the new token.
+   */
+  async get(rejected?: string): Promise<Credentials> {
+    if (rejected) this.rejected = rejected;
+    for (;;) {
+      if (!this.inflight) {
+        this.inflight = this.load().finally(() => {
+          this.inflight = undefined;
+        });
+        return this.inflight;
+      }
+      const current = await this.inflight;
+      if (!this.rejected || current.accessToken !== this.rejected)
+        return current;
+    }
   }
-  private async load(force: boolean): Promise<Credentials> {
+  private async load(): Promise<Credentials> {
     if (!this.env.KIRO_CREDENTIALS || !this.env.VAULT_KEY)
       throw new HttpError(
         503,
@@ -91,8 +105,8 @@ export class KiroAuth {
       credentials = raw as Credentials;
     }
     if (
-      !force &&
       credentials.accessToken &&
+      credentials.accessToken !== this.rejected &&
       Date.parse(credentials.expiresAt ?? "") > Date.now() + 120_000
     ) {
       this.cached = { fingerprint, credentials };
