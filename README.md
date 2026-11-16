@@ -114,22 +114,56 @@ curl "$GATEWAY_URL/v1/chat/completions" \
 
 Anthropic-compatible client dùng base URL `https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev`, endpoint `/v1/messages`, header `x-api-key` hoặc `Authorization: Bearer`. Không khai báo API key quản trị vào client.
 
-### Claude Code (CLI và extension VS Code/JetBrains)
+### Claude Code (CLI và extension VS Code/JetBrains) trên máy bất kỳ
 
-Thêm vào `~/.claude/settings.json` (hoặc `.claude/settings.local.json` của project, file này không nên commit):
+**Điều kiện:** gateway đã đủ secret. Kiểm tra bằng `npx wrangler secret list` (cần có `ADMIN_PASSWORD`, `GATEWAY_API_KEY`, `SESSION_SECRET`, `VAULT_KEY`, cộng key của các đường bạn dùng: `KIRO_CREDENTIALS`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `DEPLOY_API_KEY`). Nếu API trả `setup_required` là còn thiếu. Bổ sung từng secret còn thiếu mà không đụng secret đã có:
+
+```sh
+npx wrangler secret put GATEWAY_API_KEY                  # nhập ẩn, ≥ 24 ký tự
+openssl rand -hex 32 | npx wrangler secret put VAULT_KEY  # chỉ khi CHƯA có VAULT_KEY
+npm run upload:credentials -- /đường/dẫn/kiro-auth-token.json
+```
+
+Trên máy dùng Claude Code, sửa `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`). Extension VS Code/JetBrains đọc chung file này:
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev",
-    "ANTHROPIC_API_KEY": "GATEWAY_API_KEY của bạn",
+    "ANTHROPIC_AUTH_TOKEN": "GATEWAY_API_KEY của bạn",
     "ANTHROPIC_MODEL": "claude-sonnet-4-5",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5"
   }
 }
 ```
 
-Extension dùng chung Claude Code CLI nên đọc cùng file này. Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5`; model phải có trong allowlist ở Settings. Gateway nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (xem header `x-gateway-ignored-params`). Giới hạn: không gửi được ảnh/PDF (paste screenshot, Read file ảnh sẽ lỗi 400) và tối đa 64 tool, nên hạn chế số MCP server.
+- `ANTHROPIC_AUTH_TOKEN` gửi `Authorization: Bearer`; gateway nhận cả cách này lẫn `ANTHROPIC_API_KEY` (`x-api-key`), nhưng Claude Code interactive có thể hỏi xác nhận khi thấy `ANTHROPIC_API_KEY`.
+- Khi đặt token, Claude Code dùng gateway thay cho đăng nhập claude.ai; connector của claude.ai sẽ tắt.
+- Nếu bật Cloudflare Access cho domain, thêm `"ANTHROPIC_CUSTOM_HEADERS": "CF-Access-Client-Id: <id>\nCF-Access-Client-Secret: <secret>"` (service token của Access).
+- Model trong `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` phải có trong allowlist ở Settings. Đổi đường đi theo phiên: `claude --model anthropic/claude-opus-5-5` hoặc `/model ...` (xem bảng tiền tố bên dưới).
+
+Kiểm tra:
+
+```sh
+curl -s https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev/v1/models -H "Authorization: Bearer $GATEWAY_API_KEY"
+claude -p "chào"
+```
+
+Sau đó mở dashboard → Lịch sử request: dòng mới có icon Claude Code và tên đường đi (Kiro/Anthropic/OpenRouter/deploy.com).
+
+Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5` khi đi Kiro. Đường Kiro nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (header `x-gateway-ignored-params`); không gửi được ảnh/PDF và tối đa 64 tool. Đường `anthropic/` không có các giới hạn này vì request được chuyển tiếp nguyên văn.
+
+### Quản trị từ máy khác
+
+```sh
+gh repo clone <owner>/tg-gateway && cd tg-gateway
+npm ci
+npx wrangler login
+npm run check && npm test && npm run test:integration
+npm run deploy
+```
+
+Không chạy lại `npm run setup` khi đã có `VAULT_KEY` (script sẽ dừng để giữ token Kiro đang mã hóa). Secret nằm trên Cloudflare, dữ liệu trong Durable Object, nên máy mới không cần copy gì ngoài việc biết `GATEWAY_API_KEY` và `ADMIN_PASSWORD`.
 
 `/v1/models` trả **allowlist cấu hình**, không phải xác nhận model khả dụng từ Kiro. Kiểm tra model trong tài khoản Kiro và cập nhật Settings.
 
