@@ -799,7 +799,9 @@ export class Gateway extends DurableObject<Env> {
           [400, 402, 429].includes(status) ? status : 502,
           "kiro_http_" + status,
           // Clients get only the structured AWS error type/message, never the raw body.
-          `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
+          status === 530
+            ? `No Kiro API endpoint in region "${s.apiRegion}". Set API region to us-east-1 (or eu-central-1) in Settings.`
+            : `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
         );
       }
       sent = true;
