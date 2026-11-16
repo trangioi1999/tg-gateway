@@ -123,3 +123,40 @@ test("a rejected token triggers one shared refresh; replaced tokens are reused",
     globalThis.fetch = original;
   }
 });
+test("dashboard upload: merges SSO registration, verifies, rolls back on failure, secret change wins", async () => {
+  const { parseCredentials } = await import("../src/kiro-auth.ts");
+  const original = globalThis.fetch;
+  const map = new Map();
+  const storage = {
+    get: async (key: string) => map.get(key),
+    put: async (key: string, value: unknown) => map.set(key, value),
+    delete: async (key: string) => map.delete(key),
+  } as unknown as DurableObjectStorage;
+  const env = { VAULT_KEY: "b".repeat(64) } as Env;
+  assert.throws(() => parseCredentials({ refreshToken: "r", clientIdHash: "abc" }), /Merge the SSO/);
+  const merged = parseCredentials(
+    { refreshToken: "r", clientIdHash: "abc", region: "us-east-1", provider: "BuilderId" },
+    { clientId: "id", clientSecret: "sec", expiresAt: "x" },
+  );
+  assert.deepEqual(merged, { refreshToken: "r", region: "us-east-1", clientId: "id", clientSecret: "sec" });
+  let ok = false;
+  globalThis.fetch = async () =>
+    ok ? Response.json({ accessToken: "acc", expiresIn: 3600 }) : new Response("no", { status: 401 });
+  try {
+    const auth = new KiroAuth(storage, env);
+    assert.deepEqual(await auth.status(), { source: "none" });
+    await assert.rejects(auth.get(), /dashboard Settings/);
+    await assert.rejects(auth.save(merged), /refresh failed/);
+    assert.equal(map.has("kiro-vault"), false);
+    ok = true;
+    const status = await auth.save(merged);
+    assert.equal(status.source, "dashboard");
+    assert.equal(status.type, "sso");
+    assert.equal((await new KiroAuth(storage, env).get()).accessToken, "acc");
+    // A KIRO_CREDENTIALS secret set later takes over from the dashboard upload.
+    const later = { ...env, KIRO_CREDENTIALS: JSON.stringify({ refreshToken: "new", accessToken: "fresh", expiresAt: new Date(Date.now() + 3e6).toISOString() }) } as Env;
+    assert.equal((await new KiroAuth(storage, later).get()).accessToken, "fresh");
+  } finally {
+    globalThis.fetch = original;
+  }
+});

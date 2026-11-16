@@ -116,6 +116,7 @@ function requestQuery() {
     days: $("range").value,
     status: $("status-filter").value,
     page: String(page),
+    pageSize: $("page-size").value,
   });
   if ($("model-filter").value) q.set("model", $("model-filter").value);
   return q.toString();
@@ -250,15 +251,40 @@ function calculate() {
   $("calc-rate").textContent =
     `1 triệu token: ${number(settings.inputCreditsPerMillion, 4)} input / ${number(settings.outputCreditsPerMillion, 4)} output credit. ${settings.inputCreditsPerMillion === 0 && settings.outputCreditsPerMillion === 0 ? "Đặt tỷ lệ trong Cài đặt để bắt đầu quy đổi." : ""}`;
 }
+/** Page numbers to show around the current page; 0 marks a gap. */
+function pageList(current, total) {
+  const keep = new Set([1, total, current - 1, current, current + 1]);
+  const out = [];
+  for (let p = 1; p <= total; p++)
+    if (keep.has(p)) {
+      if (out.length && p - out[out.length - 1] > 1) out.push(0);
+      out.push(p);
+    }
+  return out;
+}
 async function loadRequests() {
   const generation = ++requestGeneration;
   const data = await api("/api/requests?" + requestQuery());
   if (generation !== requestGeneration || !signedIn) return;
   $("request-total").textContent = number(data.total) + " request";
+  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  if (page > pages) {
+    page = pages;
+    return loadRequests();
+  }
+  const from = data.total ? (page - 1) * data.pageSize + 1 : 0;
   $("page-info").textContent =
-    `Trang ${data.page} / ${Math.max(1, Math.ceil(data.total / data.pageSize))}`;
-  $("prev").disabled = page <= 1;
-  $("next").disabled = page * data.pageSize >= data.total;
+    `${number(from)}–${number(Math.min(page * data.pageSize, data.total))} / ${number(data.total)}`;
+  $("first").disabled = $("prev").disabled = page <= 1;
+  $("last").disabled = $("next").disabled = page >= pages;
+  $("last").dataset.page = String(pages);
+  $("page-numbers").innerHTML = pageList(page, pages)
+    .map((p) =>
+      p === 0
+        ? '<span class="gap">…</span>'
+        : `<button type="button" class="secondary${p === page ? " current" : ""}" data-goto="${p}"${p === page ? ' aria-current="page"' : ""}>${p}</button>`,
+    )
+    .join("");
   $("request-rows").innerHTML = data.items.length
     ? data.items
         .map(
@@ -280,6 +306,7 @@ async function loadSettings(fillForm = true) {
       if (key === "enabled") input.checked = value;
       else input.value = key === "models" ? value.join("\n") : value;
     }
+  loadKiro().catch(() => {});
   $("secret-list").innerHTML = Object.entries(data.secrets)
     .map(
       ([name, present]) =>
@@ -294,13 +321,27 @@ async function loadSettings(fillForm = true) {
       .join("");
   if (settings.models.includes(selected)) $("model-filter").value = selected;
 }
+const PAGES = ["overview", "requests", "settings"];
+function pageFromPath() {
+  const page = location.pathname.replace(/^\/+|\/+$/g, "");
+  return PAGES.includes(page) ? page : "overview";
+}
+// Old bookmarks used #overview/#requests/#settings; move them to clean paths.
+if (PAGES.includes(location.hash.slice(1)))
+  history.replaceState(null, "", "/" + location.hash.slice(1));
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const href = link.getAttribute("href");
+  if (!PAGES.includes(href.slice(1)) || href[0] !== "/") return;
+  event.preventDefault();
+  if (location.pathname !== href) history.pushState(null, "", href);
+  route();
+});
 async function route() {
   if (!signedIn) return;
-  current = ["overview", "requests", "settings"].includes(
-    location.hash.slice(1),
-  )
-    ? location.hash.slice(1)
-    : "overview";
+  current = pageFromPath();
   const labels = {
     overview: ["Tổng quan", "Lưu lượng và chi phí, trong cùng một góc nhìn."],
     requests: ["Lịch sử request", "Theo dõi từng lần gọi và số liệu sử dụng."],
@@ -412,6 +453,24 @@ $("next").addEventListener("click", () => {
   page++;
   loadRequests().catch((e) => toast(e.message));
 });
+$("first").addEventListener("click", () => {
+  page = 1;
+  loadRequests().catch((e) => toast(e.message));
+});
+$("last").addEventListener("click", () => {
+  page = Number($("last").dataset.page) || 1;
+  loadRequests().catch((e) => toast(e.message));
+});
+$("page-numbers").addEventListener("click", (event) => {
+  const target = event.target.closest("[data-goto]");
+  if (!target) return;
+  page = Number(target.dataset.goto);
+  loadRequests().catch((e) => toast(e.message));
+});
+$("page-size").addEventListener("change", () => {
+  page = 1;
+  loadRequests().catch((e) => toast(e.message));
+});
 for (const id of ["calc-input", "calc-output"])
   $(id).addEventListener("input", calculate);
 $("copy-url").addEventListener("click", async () => {
@@ -422,16 +481,93 @@ $("copy-url").addEventListener("click", async () => {
     toast("Không thể sao chép. Bạn có thể chọn và copy URL ở trên.");
   }
 });
+const KIRO_SOURCES = {
+  dashboard: "Đã lưu từ trang này",
+  secret: "Từ Cloudflare Secret KIRO_CREDENTIALS",
+  none: "Chưa có token Kiro",
+};
+async function loadKiro() {
+  const k = await api("/api/kiro");
+  const parts = [KIRO_SOURCES[k.source] ?? k.source];
+  if (k.type) parts.push(k.type === "sso" ? "Builder ID/SSO" : "Google/GitHub");
+  if (k.expiresAt)
+    parts.push("token hết hạn " + new Date(k.expiresAt).toLocaleString("vi-VN"));
+  $("kiro-status").textContent = parts.join(" · ");
+}
+let kiroPicked = {};
+function classifyKiro(list) {
+  const picked = {};
+  for (const data of list) {
+    if (data && typeof data.refreshToken === "string") picked.credentials = data;
+    else if (data && data.clientId && data.clientSecret) picked.registration = data;
+  }
+  return picked;
+}
+function describeKiro(p) {
+  if (!p.credentials) return "Chưa thấy file có refreshToken (kiro-auth-token.json).";
+  if (p.credentials.clientIdHash && !p.credentials.clientId && !p.registration)
+    return "Đăng nhập Builder ID/SSO: chọn thêm file " + p.credentials.clientIdHash + ".json cùng thư mục.";
+  return "Đã đọc token" + (p.registration ? " + file đăng ký SSO" : "") + ". Bấm Lưu để kiểm tra.";
+}
+$("kiro-files").addEventListener("change", async (event) => {
+  const parsed = [];
+  for (const file of event.target.files) {
+    try {
+      parsed.push(JSON.parse(await file.text()));
+    } catch {
+      parsed.push(null);
+    }
+  }
+  kiroPicked = classifyKiro(parsed);
+  $("kiro-picked").textContent = describeKiro(kiroPicked);
+});
+$("kiro-save").addEventListener("click", async () => {
+  let picked = kiroPicked;
+  const pasted = $("kiro-paste").value.trim();
+  if (pasted) {
+    try {
+      const value = JSON.parse(pasted);
+      picked = { ...picked, ...classifyKiro(Array.isArray(value) ? value : [value]) };
+    } catch {
+      toast("Nội dung dán không phải JSON hợp lệ.");
+      return;
+    }
+  }
+  if (!picked.credentials) {
+    $("kiro-picked").textContent = describeKiro(picked);
+    return;
+  }
+  const button = $("kiro-save");
+  button.disabled = true;
+  $("kiro-picked").textContent = "Đang kiểm tra với Kiro…";
+  try {
+    await api("/api/kiro", {
+      method: "PUT",
+      body: JSON.stringify({ credentials: picked.credentials, registration: picked.registration }),
+    });
+    kiroPicked = {};
+    $("kiro-files").value = "";
+    $("kiro-paste").value = "";
+    $("kiro-picked").textContent = "Đã lưu. Gateway dùng token này cho request tiếp theo.";
+    toast("Đã lưu token Kiro.");
+    await loadKiro();
+  } catch (error) {
+    $("kiro-picked").textContent = "Chưa lưu: " + error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 $("reset-vault").addEventListener("click", async () => {
   if (
     !confirm(
-      "Xóa token đã refresh đang lưu? Gateway sẽ dùng lại KIRO_CREDENTIALS ở request tiếp theo.",
+      "Xóa token Kiro đang lưu (kể cả token đã nhập ở trang này)? Gateway sẽ dùng lại KIRO_CREDENTIALS nếu có.",
     )
   )
     return;
   try {
     await api("/api/vault/reset", { method: "POST" });
     toast("Đã reset token vault.");
+    loadKiro().catch(() => {});
   } catch (error) {
     toast(error.message);
   }
@@ -457,7 +593,7 @@ $("export").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
-window.addEventListener("hashchange", route);
+window.addEventListener("popstate", route);
 setInterval(() => {
   if (signedIn && !document.hidden && current !== "settings")
     (current === "overview" ? loadOverview() : loadRequests()).catch((error) =>

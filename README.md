@@ -81,7 +81,9 @@ npx wrangler secret put GATEWAY_API_KEY
 
 Đăng nhập Kiro IDE rồi dùng JSON credentials do Kiro tạo, thường ở `~/.aws/sso/cache/kiro-auth-token.json`. **Đường dẫn thực tế phụ thuộc bản Kiro và cách đăng nhập.** Với SSO, cần cả `clientId` và `clientSecret`. Script tự hợp nhất file registration cùng thư mục nếu JSON có `clientIdHash`.
 
-Khi cần cập nhật sau khi đăng nhập lại:
+**Cách dễ nhất: dashboard → Cài đặt → Đăng nhập Kiro.** Chọn file `kiro-auth-token.json` (Windows: `%USERPROFILE%\.aws\sso\cache\`; Builder ID/SSO thì chọn thêm file `<clientIdHash>.json` cùng thư mục) hoặc dán JSON, bấm *Lưu & kiểm tra*. Gateway refresh thử ngay; token hỏng thì không lưu. Token được mã hóa bằng `VAULT_KEY` trong Durable Object, không cần secret `KIRO_CREDENTIALS`. Nếu sau đó bạn đặt/đổi `KIRO_CREDENTIALS`, secret mới sẽ được ưu tiên.
+
+Hoặc dùng Cloudflare Secret, khi cần cập nhật sau khi đăng nhập lại:
 
 ```sh
 npm run upload:credentials -- /absolute/path/to/kiro-auth-token.json
@@ -116,12 +118,12 @@ Anthropic-compatible client dùng base URL `https://YOUR-WORKER.YOUR-SUBDOMAIN.w
 
 ### Claude Code (CLI và extension VS Code/JetBrains) trên máy bất kỳ
 
-**Điều kiện:** gateway đã đủ secret. Kiểm tra bằng `npx wrangler secret list` (cần có `ADMIN_PASSWORD`, `GATEWAY_API_KEY`, `SESSION_SECRET`, `VAULT_KEY`, cộng key của các đường bạn dùng: `KIRO_CREDENTIALS`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `DEPLOY_API_KEY`). Nếu API trả `setup_required` là còn thiếu. Bổ sung từng secret còn thiếu mà không đụng secret đã có:
+**Điều kiện:** gateway đã đủ secret. Kiểm tra bằng `npx wrangler secret list` (cần có `ADMIN_PASSWORD`, `GATEWAY_API_KEY`, `SESSION_SECRET`, `VAULT_KEY`, cộng key của các đường bạn dùng: `KIRO_CREDENTIALS` (hoặc nhập Kiro trong dashboard), `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `DEPLOY_API_KEY`). Nếu API trả `setup_required` là còn thiếu. Bổ sung từng secret còn thiếu mà không đụng secret đã có:
 
 ```sh
 npx wrangler secret put GATEWAY_API_KEY                  # nhập ẩn, ≥ 24 ký tự
 openssl rand -hex 32 | npx wrangler secret put VAULT_KEY  # chỉ khi CHƯA có VAULT_KEY
-npm run upload:credentials -- /đường/dẫn/kiro-auth-token.json
+# Kiro: nhập trong dashboard → Cài đặt → Đăng nhập Kiro (hoặc npm run upload:credentials -- <file>)
 ```
 
 Trên máy dùng Claude Code, sửa `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`). Extension VS Code/JetBrains đọc chung file này:

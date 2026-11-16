@@ -68,16 +68,16 @@
     </section>
     <div id="app" class="app" hidden>
       <aside class="sidebar">
-        <a class="brand" href="#overview"
+        <a class="brand" href="/overview"
           ><img class="brand-logo" src="/icon.svg" alt="" width="34" height="34"
           /><span>tg<span class="muted-brand"> / gateway</span></span></a
         >
         <div class="workspace-label">WORKSPACE <span>01</span></div>
         <nav aria-label="Điều hướng">
-          <a href="#overview" data-page="overview"><span>◫</span>Tổng quan</a
-          ><a href="#requests" data-page="requests"
+          <a href="/overview" data-page="overview"><span>◫</span>Tổng quan</a
+          ><a href="/requests" data-page="requests"
             ><span>⇄</span>Lịch sử request</a
-          ><a href="#settings" data-page="settings"><span>⚙</span>Cài đặt</a>
+          ><a href="/settings" data-page="settings"><span>⚙</span>Cài đặt</a>
         </nav>
         <div class="sidebar-bottom">
           <div class="edge-box">
@@ -190,7 +190,7 @@
                   Mục tiêu để theo dõi, không tự chặn request. Chỉ bao gồm dữ
                   liệu còn trong thời hạn lưu.
                 </p>
-                <a href="#settings" class="text-link"
+                <a href="/settings" class="text-link"
                   >Điều chỉnh ngân sách ↗</a
                 >
               </article>
@@ -293,10 +293,21 @@
                 </table>
               </div>
               <div class="pagination">
-                <span id="page-info"></span>
-                <div>
-                  <button id="prev" class="secondary">← Trước</button
-                  ><button id="next" class="secondary">Sau →</button>
+                <div class="page-meta">
+                  <span id="page-info"></span
+                  ><select id="page-size" aria-label="Số dòng mỗi trang">
+                    <option value="10">10 / trang</option>
+                    <option value="25" selected>25 / trang</option>
+                    <option value="50">50 / trang</option>
+                    <option value="100">100 / trang</option>
+                  </select>
+                </div>
+                <div class="pager" role="navigation" aria-label="Phân trang">
+                  <button id="first" class="secondary" aria-label="Trang đầu">«</button
+                  ><button id="prev" class="secondary" aria-label="Trang trước">‹</button
+                  ><span id="page-numbers"></span
+                  ><button id="next" class="secondary" aria-label="Trang sau">›</button
+                  ><button id="last" class="secondary" aria-label="Trang cuối">»</button>
                 </div>
               </div>
             </article>
@@ -464,6 +475,45 @@
                       <p class="note">
                         API key: giá trị GATEWAY_API_KEY.<br />Anthropic
                         endpoint: /v1/messages.
+                      </p>
+                    </div>
+                  </article>
+                  <article class="panel">
+                    <div class="panel-heading">
+                      <div>
+                        <h2>Đăng nhập Kiro</h2>
+                        <p id="kiro-status">Đang kiểm tra…</p>
+                      </div>
+                    </div>
+                    <div class="form-body">
+                      <label
+                        >Chọn file token Kiro<input
+                          id="kiro-files"
+                          type="file"
+                          accept=".json,application/json"
+                          multiple
+                        /><span class="field-help"
+                          >Windows: %USERPROFILE%\.aws\sso\cache\kiro-auth-token.json.
+                          macOS: ~/.aws/sso/cache/. Đăng nhập Builder ID/SSO thì
+                          chọn thêm file &lt;clientIdHash&gt;.json cùng thư
+                          mục.</span
+                        ></label
+                      >
+                      <label
+                        >Hoặc dán nội dung JSON<textarea
+                          id="kiro-paste"
+                          rows="3"
+                          spellcheck="false"
+                          autocomplete="off"
+                        ></textarea
+                      ></label>
+                      <p class="note" id="kiro-picked"></p>
+                      <button id="kiro-save" class="secondary full" type="button">
+                        Lưu & kiểm tra token Kiro
+                      </button>
+                      <p class="note">
+                        Token được mã hóa bằng VAULT_KEY và lưu trong gateway,
+                        không cần Cloudflare Secret KIRO_CREDENTIALS.
                       </p>
                     </div>
                   </article>

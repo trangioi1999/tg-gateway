@@ -15,7 +15,7 @@ import {
   digest,
 } from "./security.ts";
 import { prepare, Completion, credits, object } from "./protocol.ts";
-import { KiroAuth } from "./kiro-auth.ts";
+import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
 import {
@@ -213,6 +213,16 @@ export class Gateway extends DurableObject<Env> {
           );
           return json({ settings: s });
         }
+        if (path === "/api/kiro" && request.method === "GET")
+          return json(await this.auth.status());
+        if (path === "/api/kiro" && request.method === "PUT") {
+          const body = await readJson(request, 65536);
+          if (!object(body)) throw new HttpError(400, "invalid_request", "Expected a JSON object.");
+          const credentials = parseCredentials(body.credentials, body.registration);
+          if (this.auth.inflight)
+            throw new HttpError(409, "gateway_busy", "Wait for the current token refresh to finish.");
+          return json(await this.auth.save(credentials));
+        }
         if (path === "/api/vault/reset" && request.method === "POST") {
           if (
             this.sql
@@ -379,6 +389,9 @@ export class Gateway extends DurableObject<Env> {
     const page = Number(url.searchParams.get("page") ?? 1);
     if (!Number.isInteger(page) || page < 1 || page > 10000)
       throw new HttpError(400, "invalid_page", "Invalid page.");
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 25);
+    if (![10, 25, 50, 100].includes(pageSize))
+      throw new HttpError(400, "invalid_page", "Invalid page size.");
     const { clause, args } = this.filter(url);
     const total = this.sql
       .exec<{
@@ -387,13 +400,14 @@ export class Gateway extends DurableObject<Env> {
       .one().count;
     return json({
       page,
-      pageSize: 25,
+      pageSize,
       total,
       items: this.sql
         .exec(
-          `SELECT * FROM requests WHERE ${clause} ORDER BY started DESC,id DESC LIMIT 25 OFFSET ?`,
+          `SELECT * FROM requests WHERE ${clause} ORDER BY started DESC,id DESC LIMIT ? OFFSET ?`,
           ...args,
-          (page - 1) * 25,
+          pageSize,
+          (page - 1) * pageSize,
         )
         .toArray(),
     });
@@ -869,7 +883,10 @@ export default {
         ? await env.GATEWAY.get(env.GATEWAY.idFromName("primary")).fetch(
             request,
           )
-        : await env.ASSETS.fetch(request);
+        : /^\/(overview|requests|settings)\/?$/.test(path)
+          ? // Dashboard pages are client-side routes; serve the app shell.
+            await env.ASSETS.fetch(new Request(new URL("/", request.url), request))
+          : await env.ASSETS.fetch(request);
     const secured = new Response(response.body, response);
     secured.headers.set("X-Content-Type-Options", "nosniff");
     secured.headers.set("Referrer-Policy", "no-referrer");

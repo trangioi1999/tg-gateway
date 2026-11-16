@@ -1707,3 +1707,51 @@ body {
     grid-column: 1 / -1;
   }
 }
+input[type="file"] {
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#kiro-picked:empty {
+  display: none;
+}
+.field-help {
+  overflow-wrap: anywhere;
+}
+.pagination {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.page-meta,
+.pager,
+#page-numbers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.page-meta {
+  gap: 10px;
+}
+#page-size {
+  font-size: 10px;
+  min-height: 32px;
+  padding: 4px 8px;
+  width: auto;
+}
+.pager button {
+  min-width: 32px;
+  justify-content: center;
+}
+.pager button.current {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+.pager .gap {
+  padding: 0 2px;
+}
+@media (max-width: 560px) {
+  .pagination {
+    justify-content: center;
+  }
+}
