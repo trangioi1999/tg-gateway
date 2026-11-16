@@ -1177,6 +1177,8 @@ input[role="switch"]:checked::after {
 .agent-strip li:nth-child(4) { animation-delay: 0.65s; }
 .agent-strip li:nth-child(5) { animation-delay: 0.7s; }
 .agent-strip li:nth-child(6) { animation-delay: 0.75s; }
+.agent-strip li:nth-child(7) { animation-delay: 0.8s; }
+.agent-strip li:nth-child(8) { animation-delay: 0.85s; }
 .agent-strip li:first-child { animation-delay: 0.5s; }
 /* App: live dot, page change, lane stripe, chart drawing, bars growing. */
 .gate-state:not(.paused)::before {
@@ -1212,4 +1214,74 @@ nav a,
     background-color 0.15s,
     border-color 0.15s,
     color 0.15s;
+}
+
+/* Brand marks (LobeHub icons, MIT). Colour marks are <img>; mono marks are masks tinted by currentColor. */
+.agent.branded {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.agent img,
+.agent .mono {
+  width: 60%;
+  height: 60%;
+}
+.mono {
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask: center / contain no-repeat;
+  mask: center / contain no-repeat;
+}
+.mono[data-brand="openrouter"] { -webkit-mask-image: url(/brands/openrouter.svg); mask-image: url(/brands/openrouter.svg); }
+.mono[data-brand="openai"] { -webkit-mask-image: url(/brands/openai.svg); mask-image: url(/brands/openai.svg); }
+.mono[data-brand="opencode"] { -webkit-mask-image: url(/brands/opencode.svg); mask-image: url(/brands/opencode.svg); }
+.mono[data-brand="cursor"] { -webkit-mask-image: url(/brands/cursor.svg); mask-image: url(/brands/cursor.svg); }
+.mono[data-brand="cline"] { -webkit-mask-image: url(/brands/cline.svg); mask-image: url(/brands/cline.svg); }
+.mono[data-brand="roo-code"] { -webkit-mask-image: url(/brands/roo-code.svg); mask-image: url(/brands/roo-code.svg); }
+.mono[data-brand="kilo-code"] { -webkit-mask-image: url(/brands/kilo-code.svg); mask-image: url(/brands/kilo-code.svg); }
+.mono[data-brand="anthropic"] { -webkit-mask-image: url(/brands/anthropic.svg); mask-image: url(/brands/anthropic.svg); }
+.agent.branded .mono {
+  color: var(--ink);
+}
+.model-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  vertical-align: -4px;
+  color: var(--ink);
+}
+.model-mark img,
+.model-mark .mono {
+  width: 100%;
+  height: 100%;
+}
+.with-mark {
+  white-space: nowrap;
+}
+.agent-strip .agent.branded {
+  background: rgb(255 255 255 / 0.92);
+}
+.agent-strip .agent.branded .mono {
+  color: #172033;
+}
+.upstream {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--rail-ink);
+}
+.upstream img {
+  width: 22px;
+  height: 22px;
+}
+.upstream small {
+  display: block;
+  color: var(--rail-muted);
+}
+.login-upstream {
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--rail-muted);
 }

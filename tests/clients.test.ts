@@ -24,5 +24,10 @@ test("detects common agent clients from headers", () => {
     detect({ "user-agent": "node", "x-stainless-lang": "js", "anthropic-version": "2023-06-01" }),
     "anthropic-sdk",
   );
+  assert.equal(detect({ "user-agent": "GeminiCLI/0.9.0" }), "gemini-cli");
+  assert.equal(
+    detect({ "user-agent": "node", "http-referer": "https://openrouter.ai" }),
+    "openrouter",
+  );
   assert.equal(detect({}), "other");
 });

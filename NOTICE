@@ -9,6 +9,13 @@ distributed under AGPL-3.0-or-later as well; see LICENSE. Protocol conversion
 was implemented with reference to upstream converters, auth and stream code.
 AWS Event Stream framing follows the Smithy Amazon Event Stream specification.
 
+Brand marks in public/brands/ come from @lobehub/icons-static-svg 1.102.0
+(https://github.com/lobehub/lobe-icons, MIT License, Copyright (c) LobeHub).
+The marks themselves are trademarks of their respective owners (Kiro, Anthropic,
+DeepSeek, Alibaba Qwen, Google, OpenAI, OpenRouter, Anysphere, Cline, Roo Code,
+Kilo Code, opencode). They are used only to label which client or model a
+request came from.
+
 This project is not affiliated with or endorsed by AWS, Kiro, Anthropic or OpenAI.
 When distributing or operating a modified version for other users, provide
 the corresponding source as required by the license. Do not include secrets,

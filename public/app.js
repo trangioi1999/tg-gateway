@@ -11,19 +11,29 @@ const esc = (value) =>
   );
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-// Generic glyph badges, one per agent family. Not vendor logos.
+// Brand marks from @lobehub/icons (MIT); trademarks belong to their owners.
+// Full-colour marks render as <img>; single-colour marks are CSS masks so they follow the theme.
+const COLOR_BRANDS = new Set(["kiro", "claude", "claude-code", "deepseek", "qwen", "gemini", "gemini-cli"]);
+function brandIcon(brand) {
+  return COLOR_BRANDS.has(brand)
+    ? `<img src="/brands/${brand}.svg" alt="" loading="lazy" />`
+    : `<i class="mono" data-brand="${brand}"></i>`;
+}
+// Agents without a published mark keep a short text glyph.
 const CLIENTS = {
-  "claude-code": { label: "Claude Code", glyph: ">_" },
-  "claude-code-ide": { label: "Claude Code (IDE)", glyph: "</>" },
-  cursor: { label: "Cursor", glyph: "↖" },
-  cline: { label: "Cline", glyph: "Cl" },
-  "roo-code": { label: "Roo Code", glyph: "Ro" },
-  "kilo-code": { label: "Kilo Code", glyph: "Ki" },
+  "claude-code": { label: "Claude Code", brand: "claude-code" },
+  "claude-code-ide": { label: "Claude Code (IDE)", brand: "claude-code" },
+  cursor: { label: "Cursor", brand: "cursor" },
+  cline: { label: "Cline", brand: "cline" },
+  "roo-code": { label: "Roo Code", brand: "roo-code" },
+  "kilo-code": { label: "Kilo Code", brand: "kilo-code" },
   continue: { label: "Continue", glyph: "Co" },
-  opencode: { label: "opencode", glyph: "oc" },
+  opencode: { label: "opencode", brand: "opencode" },
   aider: { label: "Aider", glyph: "Ai" },
-  "anthropic-sdk": { label: "Anthropic SDK", glyph: "{A}" },
-  "openai-sdk": { label: "OpenAI SDK", glyph: "{O}" },
+  "gemini-cli": { label: "Gemini CLI", brand: "gemini-cli" },
+  openrouter: { label: "OpenRouter", brand: "openrouter" },
+  "anthropic-sdk": { label: "Anthropic SDK", brand: "anthropic" },
+  "openai-sdk": { label: "OpenAI SDK", brand: "openai" },
   curl: { label: "curl", glyph: "$" },
   other: { label: "Khác", glyph: "?" },
 };
@@ -33,7 +43,20 @@ function agent(id) {
 function agentBadge(id, size = "") {
   const known = CLIENTS[id] ? id : "other";
   const a = CLIENTS[known];
-  return `<span class="agent ${size}" data-agent="${known}" title="${esc(a.label)}" aria-hidden="true">${esc(a.glyph)}</span>`;
+  const inner = a.brand ? brandIcon(a.brand) : esc(a.glyph);
+  return `<span class="agent ${size}${a.brand ? " branded" : ""}" data-agent="${known}" title="${esc(a.label)}" aria-hidden="true">${inner}</span>`;
+}
+const MODEL_BRANDS = [
+  [/^openrouter\//i, "openrouter"],
+  [/claude|sonnet|opus|haiku/i, "claude"],
+  [/deepseek/i, "deepseek"],
+  [/qwen/i, "qwen"],
+  [/gemini/i, "gemini"],
+  [/^(gpt|o\d|chatgpt)|openai/i, "openai"],
+];
+function modelIcon(model) {
+  const hit = MODEL_BRANDS.find(([pattern]) => pattern.test(model ?? ""));
+  return hit ? `<span class="model-mark">${brandIcon(hit[1])}</span>` : "";
 }
 
 let signedIn = false,
@@ -221,7 +244,7 @@ function renderModels(models, total) {
     ? models
         .map(
           (m) =>
-            `<div class="model-row"><strong>${esc(m.model)}</strong><span class="count">${number(m.requests)}</span><div class="share"><i data-w="${total ? (m.requests / total) * 100 : 0}"></i></div><small>${number(m.input_tokens + m.output_tokens)} token, ${number(m.estimated_credits, 4)} credit</small></div>`,
+            `<div class="model-row"><strong>${modelIcon(m.model)}${esc(m.model)}</strong><span class="count">${number(m.requests)}</span><div class="share"><i data-w="${total ? (m.requests / total) * 100 : 0}"></i></div><small>${number(m.input_tokens + m.output_tokens)} token, ${number(m.estimated_credits, 4)} credit</small></div>`,
         )
         .join("")
     : empty("Chưa có request", "Số liệu theo model xuất hiện sau lượt gọi đầu tiên.");
@@ -331,7 +354,7 @@ async function loadRequests() {
             r.status === 0
               ? `<span class="status pending">Đang chạy</span>`
               : `<span class="status ${r.status >= 400 ? "error-status" : ""}">${r.status}</span>`;
-          return `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span>${esc(agent(r.client).label)}</span><small title="${esc(r.id)}">${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td>${esc(r.model || "—")}<small>${r.streamed ? "Stream" : "JSON"}, ${r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td>${status}${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td class="num">${number(r.input_tokens)} / ${number(r.output_tokens)}${notes ? `<small>${notes}</small>` : ""}</td><td class="num">${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}</td><td class="num">${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`;
+          return `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span>${esc(agent(r.client).label)}</span><small title="${esc(r.id)}">${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td><span class="with-mark">${modelIcon(r.model)}${esc(r.model || "—")}</span><small>${r.streamed ? "Stream" : "JSON"}, ${r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td>${status}${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td class="num">${number(r.input_tokens)} / ${number(r.output_tokens)}${notes ? `<small>${notes}</small>` : ""}</td><td class="num">${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}</td><td class="num">${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`;
         })
         .join("")
     : `<tr><td colspan="6">${empty("Không có request khớp bộ lọc", "Đổi khoảng thời gian hoặc bỏ bớt bộ lọc.")}</td></tr>`;

@@ -39,14 +39,21 @@
             Ứng dụng của bạn gọi tg-gateway, tg-gateway gọi Kiro. Bạn thấy rõ
             lượt gọi, lỗi và credit ở một nơi.
           </p>
+          <p class="upstream login-upstream">
+            <img src="/brands/kiro.svg" alt="" /><span
+              >Model được gọi qua tài khoản Kiro của bạn</span
+            >
+          </p>
           <p class="works-with">Dùng được với</p>
           <ul class="agent-strip" aria-label="Agent dùng được với gateway">
-            <li><span class="agent" data-agent="claude-code">&gt;_</span>Claude Code</li>
-            <li><span class="agent" data-agent="cursor">↖</span>Cursor</li>
-            <li><span class="agent" data-agent="cline">Cl</span>Cline</li>
-            <li><span class="agent" data-agent="roo-code">Ro</span>Roo Code</li>
-            <li><span class="agent" data-agent="openai-sdk">{O}</span>OpenAI SDK</li>
-            <li><span class="agent" data-agent="anthropic-sdk">{A}</span>Anthropic SDK</li>
+            <li><span class="agent branded" data-agent="claude-code"><img src="/brands/claude-code.svg" alt="" /></span>Claude Code</li>
+            <li><span class="agent branded" data-agent="cursor"><i class="mono" data-brand="cursor"></i></span>Cursor</li>
+            <li><span class="agent branded" data-agent="cline"><i class="mono" data-brand="cline"></i></span>Cline</li>
+            <li><span class="agent branded" data-agent="roo-code"><i class="mono" data-brand="roo-code"></i></span>Roo Code</li>
+            <li><span class="agent branded" data-agent="opencode"><i class="mono" data-brand="opencode"></i></span>opencode</li>
+            <li><span class="agent branded" data-agent="gemini-cli"><img src="/brands/gemini-cli.svg" alt="" /></span>Gemini CLI</li>
+            <li><span class="agent branded" data-agent="openai-sdk"><i class="mono" data-brand="openai"></i></span>OpenAI SDK</li>
+            <li><span class="agent branded" data-agent="openrouter"><i class="mono" data-brand="openrouter"></i></span>OpenRouter</li>
           </ul>
         </div>
         <div class="barrier" aria-hidden="true"></div>
@@ -85,6 +92,11 @@
           ><a href="#settings" data-page="settings">Cài đặt</a>
         </nav>
         <div class="sidebar-foot">
+          <div class="upstream">
+            <img src="/brands/kiro.svg" alt="" /><span
+              >Kiro<small>Upstream của gateway</small></span
+            >
+          </div>
           <div class="endpoint">
             <span>Base URL</span>
             <code id="base-url"></code>
