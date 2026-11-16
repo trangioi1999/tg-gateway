@@ -1,0 +1,15 @@
+TG Gateway
+
+This independent TypeScript gateway uses the Kiro protocol documented by:
+https://github.com/jwadow/kiro-gateway
+Kiro Gateway, Copyright (C) 2025 Jwadow.
+
+The upstream project is licensed under GNU AGPL v3 or later. This project is
+distributed under AGPL-3.0-or-later as well; see LICENSE. Protocol conversion
+was implemented with reference to upstream converters, auth and stream code.
+AWS Event Stream framing follows the Smithy Amazon Event Stream specification.
+
+This project is not affiliated with or endorsed by AWS, Kiro, Anthropic or OpenAI.
+When distributing or operating a modified version for other users, provide
+the corresponding source as required by the license. Do not include secrets,
+local development state, or request databases in source distributions.

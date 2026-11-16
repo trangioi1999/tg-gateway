@@ -1,0 +1,26 @@
+{
+  "name": "tg-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:init": "node scripts/dev-init.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "test:integration": "npm run build && node --test tests/integration.mjs",
+    "deploy": "wrangler deploy",
+    "login": "wrangler login",
+    "setup": "node scripts/setup.mjs",
+    "upload:credentials": "node scripts/upload-credentials.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261116.1",
+    "@types/node": "^24.0.0",
+    "miniflare": "5.20261116.0-beta",
+    "typescript": "^5.9.0",
+    "wrangler": "4.163.0"
+  }
+}
