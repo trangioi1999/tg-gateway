@@ -4,6 +4,8 @@ type Obj = Record<string, any>;
 export function object(value: unknown): value is Obj {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+const MAX_TOOLS = 256;
+const MAX_TOOL_DESCRIPTION = 10_000;
 function invalid(message: string): never {
   throw new HttpError(400, "invalid_request", message);
 }
@@ -98,9 +100,11 @@ export function prepare(
     )
       invalid(`${field} must be a positive integer.`);
   const tools = body.tools ?? [];
-  if (!Array.isArray(tools) || tools.length > 64)
-    invalid("At most 64 tools are supported.");
+  // Claude Code with several MCP servers easily sends 100+ tools.
+  if (!Array.isArray(tools) || tools.length > MAX_TOOLS)
+    invalid(`At most ${MAX_TOOLS} tools are supported.`);
   const names = new Set<string>();
+  const longDocs: string[] = [];
   const kiroTools = tools.map((t: unknown) => {
     if (!object(t)) invalid("Invalid tool.");
     const f = mode === "openai" ? t.function : t;
@@ -117,19 +121,25 @@ export function prepare(
     if (schema != null && !object(schema))
       invalid("Tool schema must be an object.");
     names.add(f.name);
+    let description =
+      typeof f.description === "string" && f.description ? f.description : `Tool ${f.name}`;
+    // Kiro rejects very long tool descriptions; move them into the system prompt instead.
+    if (description.length > MAX_TOOL_DESCRIPTION) {
+      longDocs.push(`## Tool: ${f.name}\n\n${description}`);
+      description = `[Full documentation in the system prompt under "## Tool: ${f.name}"]`;
+    }
     return {
       toolSpecification: {
         name: f.name,
-        description:
-          typeof f.description === "string" && f.description
-            ? f.description
-            : `Tool ${f.name}`,
+        description,
         inputSchema: { json: schema ?? { type: "object", properties: {} } },
       },
     };
   });
   const history: Obj[] = [];
   let system = mode === "anthropic" ? textContent(body.system) : "";
+  if (longDocs.length)
+    system = [system, "# Tool documentation", ...longDocs].filter(Boolean).join("\n\n");
   const pending = new Set<string>();
   for (const message of body.messages) {
     if (!object(message) || typeof message.role !== "string")

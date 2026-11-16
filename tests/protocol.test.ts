@@ -309,3 +309,24 @@ test("anthropic text blocks are joined with a newline", () => {
     "Hello\nWorld",
   );
 });
+test("accepts Claude Code sized tool lists and moves long descriptions to the system prompt", () => {
+  const tools = Array.from({ length: 150 }, (_, i) => ({
+    name: `mcp__srv__tool_${i}`,
+    description: i === 0 ? "x".repeat(12_000) : "short",
+    input_schema: { type: "object", properties: {} },
+  }));
+  const p = prepare(
+    { model: defaults.models[0], system: "Base.", tools, messages: [{ role: "user", content: "hi" }] },
+    "anthropic",
+    defaults,
+  );
+  const ctx = (p.payload as any).conversationState.currentMessage.userInputMessage;
+  const specs = ctx.userInputMessageContext.tools;
+  assert.equal(specs.length, 150);
+  assert.match(specs[0].toolSpecification.description, /Full documentation/);
+  assert.match(ctx.content, /^Base\.\n\n# Tool documentation\n\n## Tool: mcp__srv__tool_0\n\nxxx/);
+  assert.throws(
+    () => prepare({ model: defaults.models[0], tools: [...tools, ...tools.map((t) => ({ ...t, name: t.name + "b" }))], messages: [{ role: "user", content: "hi" }] }, "anthropic", defaults),
+    /At most 256 tools/,
+  );
+});
