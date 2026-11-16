@@ -758,8 +758,8 @@ export class Gateway extends DurableObject<Env> {
         id,
       );
       const auth = await this.auth.get();
-      if (!auth.clientId && auth.profileArn)
-        prepared.payload.profileArn = auth.profileArn;
+      const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
+      if (profileArn) prepared.payload.profileArn = profileArn;
       if (abort.signal.aborted)
         throw new HttpError(504, "timeout", "Request timed out.");
       result = new Completion(prepared.estimatedInput);

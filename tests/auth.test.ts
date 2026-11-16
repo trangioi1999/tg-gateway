@@ -160,3 +160,30 @@ test("dashboard upload: merges SSO registration, verifies, rolls back on failure
     globalThis.fetch = original;
   }
 });
+test("Builder ID: looks up the profile ARN once and keeps it with the credentials", async () => {
+  const original = globalThis.fetch;
+  const map = new Map();
+  const storage = {
+    get: async (key: string) => map.get(key),
+    put: async (key: string, value: unknown) => map.set(key, value),
+    delete: async (key: string) => map.delete(key),
+  } as unknown as DurableObjectStorage;
+  const env = {
+    VAULT_KEY: "c".repeat(64),
+    KIRO_CREDENTIALS: JSON.stringify({ refreshToken: "r", accessToken: "a", expiresAt: new Date(Date.now() + 3e6).toISOString(), clientId: "id", clientSecret: "s" }),
+  } as Env;
+  const urls: string[] = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return Response.json({ profiles: [{ arn: "arn:aws:codewhisperer:us-east-1:1:profile/X" }] });
+  };
+  try {
+    const auth = new KiroAuth(storage, env);
+    assert.equal(await auth.profileArn("us-east-1", "1.4.178"), "arn:aws:codewhisperer:us-east-1:1:profile/X");
+    assert.deepEqual(urls, ["https://q.us-east-1.amazonaws.com/ListAvailableProfiles"]);
+    assert.equal(await new KiroAuth(storage, env).profileArn("us-east-1", "1.4.178"), "arn:aws:codewhisperer:us-east-1:1:profile/X");
+    assert.equal(urls.length, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

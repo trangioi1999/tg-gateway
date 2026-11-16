@@ -23,6 +23,7 @@ export interface KiroStatus {
   region?: string;
   expiresAt?: string;
 }
+const BUILDER_ID_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK";
 const FIELDS = ["refreshToken", "accessToken", "expiresAt", "profileArn", "region", "clientId", "clientSecret"] as const;
 const invalid = (message: string) => new HttpError(503, "credentials_invalid", message);
 /**
@@ -239,6 +240,53 @@ export class KiroAuth {
       };
     }
     return { source: this.env.KIRO_CREDENTIALS ? "secret" : "none" };
+  }
+  /**
+   * Profile ARN for generateAssistantResponse. Social logins carry it in the token file;
+   * Builder ID / Identity Center logins don't, so ask CodeWhisperer for the user's profiles
+   * and keep the answer with the (encrypted) credentials.
+   */
+  async profileArn(region: string, version: string): Promise<string | undefined> {
+    const credentials = await this.get();
+    if (credentials.profileArn) return credentials.profileArn;
+    let arn: string | undefined;
+    for (const host of [`q.${region}.amazonaws.com`, `codewhisperer.${region}.amazonaws.com`]) {
+      try {
+        const response = await fetch(`https://${host}/ListAvailableProfiles`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${credentials.accessToken}`,
+            "Content-Type": "application/json",
+            "User-Agent": `aws-sdk-js/1.0.27 KiroIDE-${version}-tg-gateway`,
+            "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${version}-tg-gateway`,
+          },
+          body: "{}",
+          signal: AbortSignal.timeout(15_000),
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          console.warn(`ListAvailableProfiles ${host}: HTTP ${response.status} ${text.slice(0, 200)}`);
+          continue;
+        }
+        const data = JSON.parse(text) as { profiles?: { arn?: unknown }[] };
+        const found = data.profiles?.find((p) => typeof p.arn === "string")?.arn;
+        if (typeof found === "string") {
+          arn = found;
+          break;
+        }
+        console.warn(`ListAvailableProfiles ${host}: no profiles`);
+      } catch (error) {
+        console.warn(`ListAvailableProfiles ${host}: ${(error as Error).message}`);
+      }
+    }
+    // Shared profile Kiro uses for AWS Builder ID accounts in us-east-1.
+    if (!arn && credentials.clientId && region === "us-east-1")
+      arn = BUILDER_ID_PROFILE_ARN;
+    if (arn && this.cached && this.cached.credentials === credentials) {
+      this.cached = { ...this.cached, credentials: { ...credentials, profileArn: arn } };
+      await this.storage.put("kiro-vault", await seal(this.env.VAULT_KEY!, this.cached));
+    }
+    return arn;
   }
   async reset() {
     this.cached = undefined;
