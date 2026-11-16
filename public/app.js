@@ -533,7 +533,9 @@ $("kiro-save").addEventListener("click", async () => {
       return;
     }
   }
-  if (!picked.credentials) {
+  const needsRegistration =
+    picked.credentials?.clientIdHash && !picked.credentials.clientId && !picked.registration;
+  if (!picked.credentials || needsRegistration) {
     $("kiro-picked").textContent = describeKiro(picked);
     return;
   }
