@@ -8,6 +8,7 @@ export interface Env {
   KIRO_CREDENTIALS?: string;
   OPENROUTER_API_KEY?: string;
   DEPLOY_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
 }
 export interface Settings {
   enabled: boolean;

@@ -38,7 +38,18 @@ const compatSse = [
   .join("") + ": keep-alive\n\ndata: [DONE]\n\n";
 const compatJson = { id: "x", object: "chat.completion", model: "deepseek-ai/deepseek-v4.1-flash-1017", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "Deploy says hi" } }], usage: { prompt_tokens: 11, completion_tokens: 4 } };
 const compat = `if(['openrouter.ai','api-cdn.deploy.com'].includes(new URL(request.url).hostname)){const key=request.headers.get('authorization');if(key!=='Bearer or-key'&&key!=='Bearer deploy-key')return Response.json({error:{message:'bad key'}},{status:401});const body=await request.json();if(body.model.startsWith('openrouter/')||body.model.startsWith('deploy/'))return Response.json({error:{message:'prefix leaked'}},{status:400});if(body.stream)return new Response(${JSON.stringify(compatSse)},{headers:{'Content-Type':'text/event-stream'}});return Response.json(${JSON.stringify(compatJson)});}`;
-const upstream = `export default {async fetch(request){${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
+const anthropicSse = [
+  { type: "message_start", message: { id: "msg_up", type: "message", role: "assistant", content: [], model: "claude-sonnet-5-5", usage: { input_tokens: 30, cache_read_input_tokens: 70, output_tokens: 1 } } },
+  { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Real Claude" } },
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } },
+  { type: "message_stop" },
+]
+  .map((e) => "event: " + e.type + "\ndata: " + JSON.stringify(e) + "\n\n")
+  .join("");
+const native = `if(new URL(request.url).hostname==='api.anthropic.com'){if(request.headers.get('x-api-key')!=='sk-ant-test')return Response.json({type:'error',error:{type:'authentication_error',message:'bad key'}},{status:401});if(request.headers.get('anthropic-beta')!=='claude-code-20250219')return Response.json({type:'error',error:{type:'invalid_request_error',message:'beta not forwarded'}},{status:400});const body=await request.json();if(body.model!=='claude-sonnet-5-5')return Response.json({type:'error',error:{type:'invalid_request_error',message:'prefix leaked'}},{status:400});if(body.messages[0].content==='overloaded')return Response.json({type:'error',error:{type:'overloaded_error',message:'Overloaded'}},{status:529,headers:{'retry-after':'7'}});return new Response(${JSON.stringify(anthropicSse)},{headers:{'Content-Type':'text/event-stream'}});}`;
+const upstream = `export default {async fetch(request){${native}${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
 test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors and CSV", async () => {
   const mf = new Miniflare(
     convertV4MiniflareOptions({
@@ -60,6 +71,7 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
             VAULT_KEY: "a".repeat(64),
             OPENROUTER_API_KEY: "or-key",
             DEPLOY_API_KEY: "deploy-key",
+            ANTHROPIC_API_KEY: "sk-ant-test",
             KIRO_CREDENTIALS: JSON.stringify({
               refreshToken: "test",
               accessToken: "access",
@@ -249,6 +261,7 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
       ...s.models,
       "openrouter/deepseek/deepseek-chat-v3.1",
       "deploy/deepseek-ai/deepseek-v4.1-flash-1017",
+      "anthropic/claude-sonnet-5-5",
     ];
     assert.equal(
       (await send("/api/settings", { method: "PUT", body: JSON.stringify(s) })).status,
@@ -286,9 +299,37 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     const deployBody = await viaDeploy.json();
     assert.equal(deployBody.choices[0].message.content, "Deploy says hi");
     assert.equal(deployBody.model, "deploy/deepseek-ai/deepseek-v4.1-flash-1017");
-    const compatRows = (await (await send("/api/requests?days=1")).json()).items.filter(
-      (r) => r.provider !== "kiro",
-    );
+    // Real Anthropic API: passthrough with model swapped, betas forwarded, errors relayed.
+    const realClaude = (content) =>
+      send("/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": "gateway-test-key", "anthropic-version": "2023-06-01", "anthropic-beta": "claude-code-20250219" },
+        body: JSON.stringify({ model: "anthropic/claude-sonnet-5-5", stream: true, max_tokens: 100, messages: [{ role: "user", content }] }),
+      });
+    const viaAnthropic = await realClaude("hi");
+    assert.equal(viaAnthropic.status, 200);
+    assert.equal(viaAnthropic.headers.get("x-gateway-provider"), "anthropic");
+    const anthropicText = await viaAnthropic.text();
+    assert.match(anthropicText, /Real Claude/);
+    assert.match(anthropicText, /message_stop/);
+    const overloaded = await realClaude("overloaded");
+    assert.equal(overloaded.status, 529);
+    assert.equal(overloaded.headers.get("retry-after"), "7");
+    assert.equal((await overloaded.json()).error.type, "overloaded_error");
+    const openaiToAnthropic = await send("/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer gateway-test-key" },
+      body: JSON.stringify({ model: "anthropic/claude-sonnet-5-5", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(openaiToAnthropic.status, 400);
+    const allRows = (await (await send("/api/requests?days=1")).json()).items;
+    const anthropicRows = allRows.filter((r) => r.provider === "anthropic");
+    assert.equal(anthropicRows.length, 3);
+    const okRow = anthropicRows.find((r) => r.status === 200);
+    assert.equal(okRow.input_tokens, 100);
+    assert.equal(okRow.output_tokens, 5);
+    assert.equal(anthropicRows.find((r) => r.status === 529).error_code, "upstream_http_529");
+    const compatRows = allRows.filter((r) => r.provider === "openrouter" || r.provider === "deploy");
     assert.equal(compatRows.length, 2);
     const orRow = compatRows.find((r) => r.provider === "openrouter");
     assert.equal(orRow.status, 200);

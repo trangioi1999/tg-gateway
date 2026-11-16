@@ -13,17 +13,27 @@ import type { ApiMode } from "./stream.ts";
 type Obj = Record<string, any>;
 
 export interface Provider {
-  id: "openrouter" | "deploy";
+  id: "openrouter" | "deploy" | "anthropic";
   label: string;
   /** Model-ID prefix that selects this provider, e.g. "openrouter/". */
   prefix: string;
   url: string;
-  keyEnv: "OPENROUTER_API_KEY" | "DEPLOY_API_KEY";
+  keyEnv: "OPENROUTER_API_KEY" | "DEPLOY_API_KEY" | "ANTHROPIC_API_KEY";
+  /** Speaks the Anthropic Messages API natively: requests are forwarded, not converted. */
+  native?: boolean;
   /** Provider-specific request fields. */
   extra?: (payload: Obj, thinking: unknown) => void;
 }
 
 export const PROVIDERS: Provider[] = [
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    prefix: "anthropic/",
+    url: "https://api.anthropic.com/v1/messages",
+    keyEnv: "ANTHROPIC_API_KEY",
+    native: true,
+  },
   {
     id: "openrouter",
     label: "OpenRouter",
@@ -416,4 +426,77 @@ export class CompatStream {
       this.event("message_stop", { type: "message_stop" })
     );
   }
+}
+
+/**
+ * Native Anthropic passthrough: the client's Messages request is forwarded as-is with
+ * only `model` swapped. Meters usage from the SSE events (or JSON body) it relays.
+ */
+export class AnthropicMeter {
+  private buffer = "";
+  stopped = false;
+  private usage: CompatUsage;
+  constructor(usage: CompatUsage) {
+    this.usage = usage;
+  }
+  private take(u: unknown) {
+    if (!object(u)) return;
+    const input =
+      (Number.isInteger(u.input_tokens) ? u.input_tokens : 0) +
+      (Number.isInteger(u.cache_read_input_tokens) ? u.cache_read_input_tokens : 0) +
+      (Number.isInteger(u.cache_creation_input_tokens) ? u.cache_creation_input_tokens : 0);
+    if (Number.isInteger(u.input_tokens)) {
+      this.usage.inputTokens = input;
+      this.usage.inputSource = "reported";
+    }
+    if (Number.isInteger(u.output_tokens)) {
+      this.usage.outputTokens = u.output_tokens;
+      this.usage.outputSource = "reported";
+    }
+  }
+  /** Observe a chunk of the relayed SSE stream. Returns nothing: bytes are forwarded unchanged. */
+  observe(text: string) {
+    this.buffer += text;
+    let newline: number;
+    while ((newline = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, newline).trim();
+      this.buffer = this.buffer.slice(newline + 1);
+      if (!line.startsWith("data:")) continue;
+      let data: Obj;
+      try {
+        data = JSON.parse(line.slice(5));
+      } catch {
+        continue;
+      }
+      if (data.type === "message_start") this.take(data.message?.usage);
+      else if (data.type === "message_delta") this.take(data.usage);
+      else if (data.type === "message_stop") this.stopped = true;
+      else if (data.type === "content_block_delta" && typeof data.delta?.text === "string")
+        this.usage.text += data.delta.text;
+    }
+  }
+  /** Observe a non-streaming Messages response. */
+  json(body: unknown) {
+    if (object(body)) this.take(body.usage);
+    this.stopped = true;
+  }
+}
+
+/** Builds the forwarded request for the native Anthropic provider. */
+export function toAnthropic(body: unknown, route: Route, clientHeaders: Headers, key: string) {
+  if (!object(body) || !Array.isArray(body.messages) || !body.messages.length)
+    invalid("A model and at least one message are required.");
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-api-key": key,
+    "anthropic-version": clientHeaders.get("anthropic-version") ?? "2023-06-01",
+  };
+  const beta = clientHeaders.get("anthropic-beta");
+  if (beta) headers["anthropic-beta"] = beta;
+  return {
+    headers,
+    body: JSON.stringify({ ...body, model: route.upstreamModel }),
+    stream: body.stream === true,
+    estimatedInput: estimateTokens(JSON.stringify(body.messages)),
+  };
 }

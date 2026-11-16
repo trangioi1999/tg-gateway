@@ -40,7 +40,7 @@ function agentBadge(id, size = "") {
   const a = agent(id);
   return `<span class="agent ${size}" title="${esc(a.label)}" aria-hidden="true">${a.brand ? brandIcon(a.brand) : esc(a.glyph)}</span>`;
 }
-const PROVIDER_LABELS = { kiro: "Kiro", openrouter: "OpenRouter", deploy: "deploy.com" };
+const PROVIDER_LABELS = { kiro: "Kiro", anthropic: "Anthropic", openrouter: "OpenRouter", deploy: "deploy.com" };
 const MODEL_BRANDS = [
   [/claude|sonnet|opus|haiku/i, "claude"],
   [/deepseek/i, "deepseek"],

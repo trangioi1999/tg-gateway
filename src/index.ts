@@ -19,6 +19,8 @@ import { KiroAuth } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
 import {
+  AnthropicMeter,
+  toAnthropic,
   CompatStream,
   CompatUsage,
   fromUpstreamJson,
@@ -199,6 +201,7 @@ export class Gateway extends DurableObject<Env> {
                 "KIRO_CREDENTIALS",
                 "OPENROUTER_API_KEY",
                 "DEPLOY_API_KEY",
+                "ANTHROPIC_API_KEY",
               ].map((k) => [k, Boolean(this.env[k as keyof Env])]),
             ),
           });
@@ -509,6 +512,102 @@ export class Gateway extends DurableObject<Env> {
       this.limit("gateway", s.requestsPerMinute);
       const raw = await readJson(request);
       const route = object(raw) ? routeModel(raw.model, s) : null;
+      if (route?.provider.native) {
+        // Real Anthropic API: forward the Messages request unchanged except for the model.
+        this.sql.exec(
+          "UPDATE requests SET model=?,provider=? WHERE id=?",
+          route.publicModel,
+          route.provider.id,
+          id,
+        );
+        if (mode !== "anthropic")
+          throw new HttpError(
+            400,
+            "invalid_request",
+            "anthropic/ models are served on /v1/messages (Anthropic format) only.",
+          );
+        const forward = toAnthropic(
+          raw,
+          route,
+          request.headers,
+          providerKey(this.env, route.provider),
+        );
+        this.sql.exec(
+          "UPDATE requests SET model=?,streamed=?,provider=? WHERE id=?",
+          route.publicModel,
+          Number(forward.stream),
+          route.provider.id,
+          id,
+        );
+        const usage = new CompatUsage(forward.estimatedInput);
+        result = usage;
+        const meter = new AnthropicMeter(usage);
+        const response = await fetch(route.provider.url, {
+          method: "POST",
+          headers: forward.headers,
+          body: forward.body,
+          signal: abort.signal,
+        });
+        const headers: Record<string, string> = {
+          "x-request-id": id,
+          "x-gateway-provider": route.provider.id,
+          "Cache-Control": "no-store",
+        };
+        if (!response.ok) {
+          // Same dialect: relay Anthropic's own error so the client's retry logic applies.
+          const status = response.status;
+          const retryAfter = response.headers.get("retry-after");
+          const text = await response.text();
+          finish(status, "upstream_http_" + status);
+          return new Response(text, {
+            status,
+            headers: {
+              ...headers,
+              "Content-Type":
+                response.headers.get("content-type") ?? "application/json",
+              ...(retryAfter ? { "retry-after": retryAfter } : {}),
+            },
+          });
+        }
+        sent = true;
+        if (!forward.stream || !response.body) {
+          const body = await response.json();
+          meter.json(body);
+          finish(200);
+          return json(body, 200, headers);
+        }
+        const decoder = new TextDecoder();
+        const relay = new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            meter.observe(decoder.decode(chunk, { stream: true }));
+            controller.enqueue(chunk);
+          },
+        });
+        const task = response.body
+          .pipeTo(relay.writable, { signal: abort.signal })
+          .then(
+            () =>
+              finish(
+                meter.stopped ? 200 : 502,
+                meter.stopped ? null : "incomplete_stream",
+              ),
+            (error) => {
+              const e = asError(error);
+              finish(
+                e instanceof HttpError ? e.status : 502,
+                e instanceof HttpError ? e.code : "stream_error",
+              );
+            },
+          );
+        this.ctx.waitUntil(task);
+        return new Response(relay.readable, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
       if (route) {
         // OpenAI-compatible provider (OpenRouter, deploy.com): no Kiro auth involved.
         const compat = toUpstream(raw, mode, route);

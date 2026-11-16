@@ -160,3 +160,32 @@ test("non-streaming JSON converts to an Anthropic message with tool use", () => 
     /No endpoints found/,
   );
 });
+
+test("native Anthropic: forwards the request with the model swapped and meters SSE usage", async () => {
+  const { AnthropicMeter, toAnthropic } = await import("../src/compat.ts");
+  const s = { ...settings, models: [...settings.models, "anthropic/claude-sonnet-5-5"] };
+  const route = routeModel("anthropic/claude-sonnet-5-5", s)!;
+  assert.equal(route.provider.id, "anthropic");
+  const body = { model: route.publicModel, stream: true, thinking: { type: "adaptive" }, messages: [{ role: "user", content: "hi" }] };
+  const fwd = toAnthropic(body, route, new Headers({ "anthropic-beta": "claude-code-20250219" }), "sk-test");
+  assert.deepEqual(JSON.parse(fwd.body), { ...body, model: "claude-sonnet-5-5" });
+  assert.equal(fwd.headers["x-api-key"], "sk-test");
+  assert.equal(fwd.headers["anthropic-version"], "2023-06-01");
+  assert.equal(fwd.headers["anthropic-beta"], "claude-code-20250219");
+  const usage = new CompatUsage(0);
+  const meter = new AnthropicMeter(usage);
+  const events = [
+    { type: "message_start", message: { usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 1 } } },
+    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 12 } },
+    { type: "message_stop" },
+  ]
+    .map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)
+    .join("");
+  meter.observe(events.slice(0, 50));
+  meter.observe(events.slice(50));
+  assert.equal(meter.stopped, true);
+  assert.equal(usage.inputTokens, 100);
+  assert.equal(usage.outputTokens, 12);
+  assert.equal(usage.outputSource, "reported");
+});
