@@ -1617,3 +1617,93 @@ td {
     white-space: nowrap;
   }
 }
+
+/* ---- Fit & scale ----
+   Goal: on load, the overview's numbers and chart fit the first screen; nothing scrolls
+   sideways; UI scales up on large monitors and down on small laptops. */
+:root {
+  --z: 1;
+}
+@media (min-width: 1700px) {
+  :root { --z: 1.1; }
+}
+@media (min-width: 2200px) {
+  :root { --z: 1.25; }
+}
+@media (min-width: 1151px) and (max-width: 1366px) {
+  :root { --z: 0.94; }
+}
+body {
+  zoom: var(--z);
+}
+/* vh is not affected by zoom, so divide it back out. */
+.chart {
+  height: clamp(140px, calc(100vh / var(--z) - 530px), 300px);
+}
+@media (min-width: 701px) and (max-height: 820px) {
+  .content {
+    padding-top: 22px;
+  }
+  .page-heading {
+    margin-bottom: 18px;
+  }
+  .metrics,
+  .overview-grid {
+    margin-bottom: 16px;
+  }
+  .metric {
+    padding: 15px 18px 13px;
+  }
+  .chart {
+    padding-top: 14px;
+  }
+}
+/* Request log as cards below 1100px: no sideways scrolling. */
+@media (max-width: 1100px) {
+  #requests .table-scroll {
+    overflow: visible;
+  }
+  #requests table,
+  #requests tbody,
+  #requests td {
+    display: block;
+    width: 100%;
+  }
+  #requests thead {
+    display: none;
+  }
+  #requests tr {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 14px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  #requests td {
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    min-width: 0;
+  }
+  #requests td:nth-child(1),
+  #requests td:nth-child(2) {
+    grid-column: span 2;
+  }
+  #requests td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+}
+@media (max-width: 520px) {
+  #requests tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 14px 16px;
+  }
+  #requests td:nth-child(1),
+  #requests td:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+}
