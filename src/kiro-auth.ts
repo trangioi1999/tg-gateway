@@ -1,5 +1,5 @@
 import { digest, seal, unseal } from "./security.ts";
-import { HttpError, type Env } from "./types.ts";
+import { HttpError, defaults, type Env } from "./types.ts";
 import { object } from "./protocol.ts";
 interface Credentials {
   refreshToken: string;
@@ -148,7 +148,7 @@ export class KiroAuth {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "KiroIDE-0.7.45-tg-gateway",
+        "User-Agent": `KiroIDE-${defaults.kiroVersion}-tg-gateway`,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30_000),

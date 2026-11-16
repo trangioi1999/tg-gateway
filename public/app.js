@@ -404,7 +404,7 @@ $("settings-form").addEventListener("submit", async (event) => {
               .split("\n")
               .map((s) => s.trim())
               .filter(Boolean)
-          : key === "apiRegion"
+          : key === "apiRegion" || key === "kiroVersion"
             ? String(data.get(key)).trim()
             : Number(data.get(key));
   event.submitter.disabled = true;

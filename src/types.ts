@@ -13,6 +13,8 @@ export interface Env {
 export interface Settings {
   enabled: boolean;
   apiRegion: string;
+  /** Kiro IDE version reported upstream; Kiro rejects versions it no longer supports. */
+  kiroVersion: string;
   models: string[];
   inputCreditsPerMillion: number;
   outputCreditsPerMillion: number;
@@ -24,6 +26,7 @@ export interface Settings {
 export const defaults: Settings = {
   enabled: true,
   apiRegion: "us-east-1",
+  kiroVersion: "1.4.178",
   models: ["claude-sonnet-4.5", "claude-haiku-4.5"],
   inputCreditsPerMillion: 0,
   outputCreditsPerMillion: 0,
@@ -57,6 +60,8 @@ export function validateSettings(raw: unknown): Settings {
       "invalid_settings",
       "Invalid region or gateway state.",
     );
+  if (typeof s.kiroVersion !== "string" || !/^\d{1,4}\.\d{1,4}\.\d{1,6}$/.test(s.kiroVersion))
+    throw new HttpError(400, "invalid_settings", "Kiro version must look like 1.4.178.");
   if (
     !Array.isArray(s.models) ||
     !s.models.length ||

@@ -345,7 +345,9 @@
                           >API region<input
                             name="apiRegion"
                             required
-                            placeholder="us-east-1" /></label
+                            placeholder="us-east-1" /><span class="field-help"
+                            >Kiro chỉ có us-east-1 và eu-central-1.</span
+                          ></label
                         ><label
                           >Request / phút<input
                             name="requestsPerMinute"
@@ -355,6 +357,17 @@
                             required
                         /></label>
                       </div>
+                      <label
+                        >Phiên bản Kiro<input
+                          name="kiroVersion"
+                          required
+                          placeholder="1.4.178"
+                          pattern="\d+\.\d+\.\d+" /><span class="field-help"
+                          >Gửi kèm mỗi request. Gặp lỗi "This version of Kiro is no
+                          longer supported" thì điền số phiên bản Kiro IDE mới nhất
+                          (Help → About).</span
+                        ></label
+                      >
                       <label
                         >Model ID
                         <span class="field-help"

@@ -107,11 +107,15 @@ export class Gateway extends DurableObject<Env> {
     });
   }
   settings(): Settings {
-    return JSON.parse(
-      this.sql
-        .exec<{ value: string }>("SELECT value FROM settings WHERE id=1")
-        .one().value,
-    );
+    // Defaults first so settings saved by older versions pick up newly added fields.
+    return {
+      ...defaults,
+      ...JSON.parse(
+        this.sql
+          .exec<{ value: string }>("SELECT value FROM settings WHERE id=1")
+          .one().value,
+      ),
+    };
   }
   limit(key: string, max: number) {
     const bucket = `${key}:${Math.floor(Date.now() / 60_000)}`;
@@ -771,8 +775,8 @@ export class Gateway extends DurableObject<Env> {
               "x-amz-target":
                 "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
               Accept: "application/vnd.amazon.eventstream",
-              "User-Agent": `aws-sdk-js/1.0.27 KiroIDE-0.7.45-${this.ctx.id.toString()}`,
-              "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-0.7.45-${this.ctx.id.toString()}`,
+              "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.26100 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
+              "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
               "x-amzn-codewhisperer-optout": "true",
               "x-amzn-kiro-agent-mode": "vibe",
               "amz-sdk-invocation-id": crypto.randomUUID(),
