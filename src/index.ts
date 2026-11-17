@@ -37,6 +37,7 @@ import {
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
+import { ResponseCache, responseKey, snapshot, restore } from "./cache.ts";
 import {
   AnthropicMeter,
   toAnthropic,
@@ -93,6 +94,8 @@ export class Gateway extends DurableObject<Env> {
   auth: KiroAuth;
   /** In-flight summarizer calls by prefix hash (identical concurrent requests share one). */
   summarizing = new Map<string, Promise<string>>();
+  /** Completed Kiro answers for identical resends (memory only). */
+  cache = new ResponseCache();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
@@ -543,6 +546,8 @@ export class Gateway extends DurableObject<Env> {
     const optimizations: string[] = [];
     let savedTokens = 0,
       free = false;
+    // Releases identical requests waiting on this one; caches the answer on success.
+    let settle: ((answer: ReturnType<typeof snapshot> | null) => void) | undefined;
     const abort = new AbortController();
     // Idle timeout: every upstream chunk resets it, so long but live answers are not cut
     // off (a cut answer is retried by clients and charged again).
@@ -568,6 +573,13 @@ export class Gateway extends DurableObject<Env> {
       clearTimeout(cap);
       request.signal.removeEventListener("abort", cancel);
       result?.finalize();
+      settle?.(
+        status === 200 &&
+          (code === null || code === "no_completion_signal") &&
+          result instanceof Completion
+          ? snapshot(result)
+          : null,
+      );
       const input = sent ? (result?.inputTokens ?? 0) : 0,
         output = sent ? (result?.outputTokens ?? 0) : 0;
       this.sql.exec(
@@ -827,32 +839,32 @@ export class Gateway extends DurableObject<Env> {
         Number(prepared.stream),
         id,
       );
+      /** Answer without calling Kiro (local reply or cache hit); costs no credit. */
+      const replay = (answer: Completion, tag: string, header: Record<string, string>) => {
+        result = answer;
+        sent = true;
+        free = true;
+        optimizations.push(tag);
+        savedTokens += prepared.estimatedInput;
+        const formatter = new Formatter(mode, id, prepared.model);
+        const headers = { "x-request-id": id, "Cache-Control": "no-store", ...header };
+        finish(200);
+        if (!prepared.stream) return json(formatter.json(answer), 200, headers);
+        return new Response(
+          formatter.start(answer.inputTokens) +
+            (answer.text ? formatter.text(answer.text) : "") +
+            answer.tools.map((t) => formatter.tool(t)).join("") +
+            formatter.finish(answer, prepared.includeUsage),
+          { headers: { ...headers, "Content-Type": "text/event-stream; charset=utf-8" } },
+        );
+      };
       if (prepared.maxTokens === 1) {
         // Kiro has no output limit, so a 1-token probe (Claude Code's quota check) would be
         // a full paid answer. Answer it here: empty text, stopped by max_tokens.
         const local = new Completion(prepared.estimatedInput);
         local.stopReason = "max_tokens";
         local.outputSource = "reported";
-        result = local;
-        sent = true;
-        free = true;
-        optimizations.push("local_reply");
-        savedTokens = prepared.estimatedInput;
-        const formatter = new Formatter(mode, id, prepared.model);
-        const headers = { "x-request-id": id, "x-gateway-local": "max_tokens_1" };
-        finish(200);
-        if (!prepared.stream) return json(formatter.json(local), 200, headers);
-        return new Response(
-          formatter.start(local.inputTokens) +
-            formatter.finish(local, prepared.includeUsage),
-          {
-            headers: {
-              ...headers,
-              "Cache-Control": "no-store",
-              "Content-Type": "text/event-stream; charset=utf-8",
-            },
-          },
-        );
+        return replay(local, "local_reply", { "x-gateway-local": "max_tokens_1" });
       }
       const original = prepared.conversation.turns;
       if (s.clearToolResults) {
@@ -874,6 +886,14 @@ export class Gateway extends DurableObject<Env> {
           optimizations.push(compacted.summarized ? "compact_new" : "compact");
           savedTokens += compacted.savedTokens;
         }
+      }
+      if (s.responseCacheSeconds) {
+        // Identical resend (retry after a dropped stream, duplicate background call): replay
+        // the stored answer, or wait for the identical request that is still running.
+        const key = await responseKey(prepared.payload);
+        const hit = this.cache.get(key) ?? (await this.cache.wait(key));
+        if (hit) return replay(restore(hit), "cache_hit", { "x-gateway-cache": "hit" });
+        settle = this.cache.begin(key, s.responseCacheSeconds * 1000);
       }
       const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
       if (profileArn) prepared.payload.profileArn = profileArn;

@@ -124,7 +124,8 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
       ).status,
       403,
     );
-    s = { ...s, inputCreditsPerMillion: 100, outputCreditsPerMillion: 200 };
+    // Every request below must reach the fake Kiro; the response cache has its own test.
+    s = { ...s, inputCreditsPerMillion: 100, outputCreditsPerMillion: 200, responseCacheSeconds: 0 };
     assert.equal(
       (await send("/api/settings", { method: "PUT", body: JSON.stringify(s) }))
         .status,
@@ -470,6 +471,37 @@ test("compaction: summarize once, reuse for later turns, log the summarizer call
     await put({ ...s, clearToolResults: false, responseCacheSeconds: 0, compactEnabled: false });
     await ask([...history, { role: "user", content: "again" }]);
     assert.match(JSON.stringify((await calls()).at(-1).conversationState), /step 0 /);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("response cache: identical resend replays, concurrent duplicates share one call", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    const ask = (content, stream = false) =>
+      send("/v1/messages", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, stream, messages: [{ role: "user", content }] }) });
+    const first = await (await ask("cache me")).json();
+    const again = await ask("cache me", true);
+    assert.equal(again.headers.get("x-gateway-cache"), "hit");
+    const text = await again.text();
+    assert.match(text, /Hello world/);
+    assert.match(text, /message_stop/);
+    assert.equal(first.content[0].text, "Hello world");
+    assert.equal((await calls()).length, 1);
+    // Two identical slow requests at once: Kiro is called once.
+    const [a, b] = await Promise.all([ask("slow twin"), ask("slow twin")]);
+    assert.equal(a.status, 200);
+    assert.equal(b.status, 200);
+    assert.equal((await calls()).filter((p) => p.conversationState.currentMessage.userInputMessage.content === "slow twin").length, 1);
+    // A different request is not served from cache.
+    await ask("something else");
+    assert.equal((await calls()).length, 3);
+    const rows = (await (await send("/api/requests?days=1")).json()).items;
+    const hits = rows.filter((r) => r.optimizations === "cache_hit");
+    assert.equal(hits.length, 2);
+    assert.ok(hits.every((r) => r.estimated_credits === 0 && r.reported_credits === null));
   } finally {
     await mf.dispose();
   }
