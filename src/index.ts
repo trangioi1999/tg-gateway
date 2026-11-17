@@ -900,7 +900,9 @@ export class Gateway extends DurableObject<Env> {
       if (profileArn) prepared.payload.profileArn = profileArn;
       if (abort.signal.aborted)
         throw new HttpError(504, "timeout", "Request timed out.");
-      result = new Completion(prepared.estimatedInput);
+      const kiroResult = new Completion(prepared.estimatedInput);
+      kiroResult.toolNames = prepared.toolNames;
+      result = kiroResult;
       const response = await this.kiro(prepared.payload, s, abort.signal);
       sent = true;
       const formatter = new Formatter(mode, id, prepared.model);

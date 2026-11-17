@@ -6,6 +6,25 @@ export function object(value: unknown): value is Obj {
 }
 const MAX_TOOLS = 256;
 const MAX_TOOL_DESCRIPTION = 10_000;
+/** Kiro only accepts tool names matching this. */
+const KIRO_TOOL_NAME = /^[\w-]{1,64}$/;
+/** Deterministic 8-hex-digit FNV-1a hash (keeps shortened tool names stable across turns). */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+/**
+ * Name sent to Kiro for a client tool name: unchanged when Kiro accepts it, otherwise
+ * illegal characters become "_" and long names are cut to 55 chars + "_" + hash.
+ */
+export function kiroToolName(name: string): string {
+  if (KIRO_TOOL_NAME.test(name)) return name;
+  const clean = name.replace(/[^\w-]/g, "_");
+  return clean.length <= 64 && clean !== name
+    ? clean + "_" + shortHash(name).slice(0, Math.min(8, 63 - clean.length))
+    : clean.slice(0, 55) + "_" + shortHash(name);
+}
 function invalid(message: string): never {
   throw new HttpError(400, "invalid_request", message);
 }
@@ -64,6 +83,8 @@ export interface Prepared {
   ignored: string[];
   /** Client's max_tokens / max_completion_tokens (Kiro itself has no output limit). */
   maxTokens?: number;
+  /** Kiro tool name → client tool name, for tools renamed to fit Kiro's naming rules. */
+  toolNames: Map<string, string>;
   payload: Obj;
   estimatedInput: number;
 }
@@ -147,24 +168,29 @@ export function prepare(
   // Claude Code with several MCP servers easily sends 100+ tools.
   if (!Array.isArray(tools) || tools.length > MAX_TOOLS)
     invalid(`At most ${MAX_TOOLS} tools are supported.`);
-  const names = new Set<string>();
+  // Client name → Kiro name. Names Kiro rejects (over 64 chars, dots, colons…, common with
+  // MCP servers) are renamed and mapped back when Kiro calls the tool.
+  const names = new Map<string, string>();
+  const toolNames = new Map<string, string>();
   const longDocs: string[] = [];
-  const kiroTools = tools.map((t: unknown) => {
+  const kiroTools: Obj[] = [];
+  for (const t of tools) {
     if (!object(t)) invalid("Invalid tool.");
     const f = mode === "openai" ? t.function : t;
-    if (
-      !object(f) ||
-      typeof f.name !== "string" ||
-      !/^[\w-]{1,64}$/.test(f.name) ||
-      names.has(f.name)
-    )
-      invalid("Tool names must be unique and 1–64 characters.");
+    if (!object(f) || typeof f.name !== "string" || !f.name || f.name.length > 256)
+      invalid("Every tool needs a name of 1–256 characters.");
     if (mode === "openai" && t.type !== "function")
       invalid("Only function tools are supported.");
     const schema = mode === "openai" ? f.parameters : f.input_schema;
     if (schema != null && !object(schema))
-      invalid("Tool schema must be an object.");
-    names.add(f.name);
+      invalid(`Tool schema must be an object (tool ${f.name.slice(0, 80)}).`);
+    // The same tool listed twice (e.g. by two MCP configs): keep the first definition.
+    if (names.has(f.name)) continue;
+    let kiroName = kiroToolName(f.name);
+    for (let n = 2; toolNames.has(kiroName); n++)
+      kiroName = kiroToolName(f.name).slice(0, 60) + "_" + n;
+    names.set(f.name, kiroName);
+    toolNames.set(kiroName, f.name);
     let description =
       typeof f.description === "string" && f.description ? f.description : `Tool ${f.name}`;
     // Kiro rejects very long tool descriptions; move them into the system prompt instead.
@@ -172,14 +198,14 @@ export function prepare(
       longDocs.push(`## Tool: ${f.name}\n\n${description}`);
       description = `[Full documentation in the system prompt under "## Tool: ${f.name}"]`;
     }
-    return {
+    kiroTools.push({
       toolSpecification: {
-        name: f.name,
+        name: kiroName,
         description,
         inputSchema: { json: schema ?? { type: "object", properties: {} } },
       },
-    };
-  });
+    });
+  }
   const history: Obj[] = [];
   let system = mode === "anthropic" ? textContent(body.system) : "";
   if (longDocs.length)
@@ -263,6 +289,7 @@ export function prepare(
     for (const t of toolUses) {
       if (!names.has(t.name) || pending.has(t.toolUseId))
         invalid("Tool call must reference a declared tool with a unique ID.");
+      t.name = names.get(t.name);
       pending.add(t.toolUseId);
     }
     for (const t of toolResults) {
@@ -328,6 +355,7 @@ export function prepare(
     includeUsage: body.stream_options?.include_usage === true,
     ignored,
     maxTokens: body.max_tokens ?? body.max_completion_tokens,
+    toolNames: new Map([...toolNames].filter(([kiro, client]) => kiro !== client)),
     payload,
     estimatedInput: estimateTokens(JSON.stringify(payload)),
   };
@@ -453,6 +481,8 @@ export class Completion {
   terminal = false;
   /** Set when the answer stopped for a reason other than end of turn / tool use. */
   stopReason?: "max_tokens";
+  /** Kiro tool name → client tool name (see Prepared.toolNames). */
+  toolNames?: Map<string, string>;
   active?: ToolCall;
   constructor(estimatedInput: number) {
     this.inputTokens = estimatedInput;
@@ -514,6 +544,7 @@ export class Completion {
             "invalid_tool_arguments",
             "Tool arguments must be an object.",
           );
+        tool.name = this.toolNames?.get(tool.name) ?? tool.name;
         this.tools.push(tool);
         this.active = undefined;
         return { tool };
