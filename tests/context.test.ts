@@ -73,3 +73,49 @@ test("clearInputs shortens long strings in old tool arguments only", () => {
   assert.equal(uses[0].input.path, "f0.ts");
   assert.equal(uses.at(-1).input.note.length, 500);
 });
+
+import { prefixHashes, chooseCut, renderTranscript, applySummary, MIN_COMPACT_TOKENS } from "../src/context.ts";
+
+test("prefix hashes are chained and ignore the per-turn model", async () => {
+  const a = session(3).conversation.turns;
+  const b = structuredClone(a);
+  for (const t of b) if (t.userInputMessage) t.userInputMessage.modelId = "other-model";
+  const ha = await prefixHashes(a),
+    hb = await prefixHashes(b);
+  assert.equal(ha.length, a.length);
+  assert.deepEqual(ha, hb);
+  const longer = await prefixHashes([...a, { assistantResponseMessage: { content: "more" } }]);
+  assert.deepEqual(longer.slice(0, ha.length), ha, "a longer conversation shares the prefix hashes");
+  const changed = structuredClone(a);
+  changed[0].userInputMessage.content = "different start";
+  assert.notEqual((await prefixHashes(changed)).at(-1), ha.at(-1));
+});
+
+test("cut lands on a user turn, keeps the tail under budget, skips tiny prefixes", () => {
+  const turns = session(10, 4000).conversation.turns; // ~1000 tokens per tool result
+  const cut = chooseCut(turns, 3000, 0);
+  assert.ok(cut > 0 && cut < turns.length);
+  assert.ok(turns[cut].userInputMessage);
+  const tail = turns.slice(cut).reduce((n, t) => n + JSON.stringify(t).length / 4, 0);
+  assert.ok(tail <= 3000);
+  // Nothing new to summarize after `cut`, or too little before it.
+  assert.equal(chooseCut(turns, 3000, cut), cut);
+  assert.equal(chooseCut(session(2, 100).conversation.turns, 100, 0), 0);
+  assert.ok(MIN_COMPACT_TOKENS > 0);
+});
+
+test("summary replaces the prefix; dangling tool results become text", () => {
+  const turns = session(4).conversation.turns;
+  const cut = 2; // user turn holding the result of t0
+  const out = applySummary(turns, cut, "SUMMARY");
+  assert.equal(out.length, turns.length - cut);
+  const first = out[0].userInputMessage;
+  assert.match(first.content, /^\[Summary of the earlier conversation[^\n]*\nSUMMARY\n\[End of summary\]/);
+  assert.match(first.content, /Results of the last tool calls:\n- t0: 0:xxx/);
+  assert.equal(first.userInputMessageContext, undefined);
+  assert.equal(turns[cut].userInputMessage.userInputMessageContext.toolResults.length, 1, "input not mutated");
+  const transcript = renderTranscript(turns.slice(0, cut), "OLD");
+  assert.match(transcript, /^## Summary of the conversation before this point\nOLD/);
+  assert.match(transcript, /User: fix the bug/);
+  assert.match(transcript, /Assistant called Read \(t0\)/);
+});

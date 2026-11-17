@@ -14,8 +14,26 @@ import {
   readJson,
   digest,
 } from "./security.ts";
-import { prepare, rebuild, Completion, credits, object } from "./protocol.ts";
-import { clearToolResults } from "./context.ts";
+import {
+  prepare,
+  rebuild,
+  buildPayload,
+  modelId,
+  estimateTokens,
+  Completion,
+  credits,
+  object,
+  type Prepared,
+} from "./protocol.ts";
+import {
+  clearToolResults,
+  conversationTokens,
+  prefixHashes,
+  chooseCut,
+  renderTranscript,
+  summaryRequest,
+  applySummary,
+} from "./context.ts";
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
@@ -73,6 +91,8 @@ function failure(
 export class Gateway extends DurableObject<Env> {
   sql: SqlStorage;
   auth: KiroAuth;
+  /** In-flight summarizer calls by prefix hash (identical concurrent requests share one). */
+  summarizing = new Map<string, Promise<string>>();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
@@ -114,6 +134,11 @@ export class Gateway extends DurableObject<Env> {
       this.sql.exec(
         "ALTER TABLE requests ADD COLUMN saved_tokens INTEGER NOT NULL DEFAULT 0",
       );
+    // Compaction summaries (conversation content): only written when compactEnabled is on,
+    // deleted when it is turned off and after min(retentionDays, 7) days.
+    this.sql.exec(
+      `CREATE TABLE IF NOT EXISTS summaries (hash TEXT PRIMARY KEY, entries INTEGER NOT NULL, summary TEXT NOT NULL, created INTEGER NOT NULL)`,
+    );
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL)`,
     );
@@ -157,6 +182,10 @@ export class Gateway extends DurableObject<Env> {
     this.sql.exec(
       "DELETE FROM requests WHERE started < ?",
       now - this.settings().retentionDays * 86400_000,
+    );
+    this.sql.exec(
+      "DELETE FROM summaries WHERE created < ?",
+      now - Math.min(this.settings().retentionDays, 7) * 86400_000,
     );
     this.sql.exec(
       "UPDATE requests SET status=598,error_code='interrupted_unknown',finished=?,latency=?-started WHERE status=0 AND started<?",
@@ -235,6 +264,7 @@ export class Gateway extends DurableObject<Env> {
             "UPDATE settings SET value=? WHERE id=1",
             JSON.stringify(s),
           );
+          if (!s.compactEnabled) this.sql.exec("DELETE FROM summaries");
           return json({ settings: s });
         }
         if (path === "/api/kiro" && request.method === "GET")
@@ -824,6 +854,7 @@ export class Gateway extends DurableObject<Env> {
           },
         );
       }
+      const original = prepared.conversation.turns;
       if (s.clearToolResults) {
         const trimmed = clearToolResults(prepared.conversation, {
           triggerTokens: s.clearTriggerTokens,
@@ -837,57 +868,19 @@ export class Gateway extends DurableObject<Env> {
           savedTokens += trimmed.savedTokens;
         }
       }
-      const auth = await this.auth.get();
+      if (s.compactEnabled) {
+        const compacted = await this.compact(prepared, original, s, abort.signal, touch);
+        if (compacted.savedTokens) {
+          optimizations.push(compacted.summarized ? "compact_new" : "compact");
+          savedTokens += compacted.savedTokens;
+        }
+      }
       const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
       if (profileArn) prepared.payload.profileArn = profileArn;
       if (abort.signal.aborted)
         throw new HttpError(504, "timeout", "Request timed out.");
       result = new Completion(prepared.estimatedInput);
-      const call = (token: string) =>
-        fetch(
-          // runtime.<region>.kiro.dev answers Workers with Cloudflare error 1016 (530); use the AWS host.
-          `https://q.${s.apiRegion}.amazonaws.com/generateAssistantResponse`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/x-amz-json-1.0",
-              "x-amz-target":
-                "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
-              Accept: "application/vnd.amazon.eventstream",
-              "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.26100 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
-              "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
-              "x-amzn-codewhisperer-optout": "true",
-              "x-amzn-kiro-agent-mode": "vibe",
-              "amz-sdk-invocation-id": crypto.randomUUID(),
-              "amz-sdk-request": "attempt=1; max=1",
-            },
-            body: JSON.stringify(prepared.payload),
-            signal: abort.signal,
-          },
-        );
-      let response = await call(auth.accessToken!);
-      // Retry only an explicit authentication rejection, never a generated/partially streamed request.
-      if (response.status === 401 || response.status === 403) {
-        await response.body?.cancel();
-        response = await call(
-          (await this.auth.get(auth.accessToken)).accessToken!,
-        );
-      }
-      if (!response.ok) {
-        const status = response.status;
-        const { reason, raw } = await upstreamReason(response);
-        // Only visible to the account owner in `wrangler tail`.
-        console.warn(`kiro_http_${status}: ${reason || raw}`);
-        throw new HttpError(
-          [400, 402, 429].includes(status) ? status : 502,
-          "kiro_http_" + status,
-          // Clients get only the structured AWS error type/message, never the raw body.
-          status === 530
-            ? `No Kiro API endpoint in region "${s.apiRegion}". Set API region to us-east-1 (or eu-central-1) in Settings.`
-            : `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
-        );
-      }
+      const response = await this.kiro(prepared.payload, s, abort.signal);
       sent = true;
       const formatter = new Formatter(mode, id, prepared.model);
       const headers = {
@@ -969,9 +962,198 @@ export class Gateway extends DurableObject<Env> {
       );
     }
   }
+  /** POST a payload to Kiro; retries once on an auth rejection. Throws on non-2xx. */
+  async kiro(payload: object, s: Settings, signal: AbortSignal): Promise<Response> {
+    const auth = await this.auth.get();
+    const call = (token: string) =>
+      fetch(
+        // runtime.<region>.kiro.dev answers Workers with Cloudflare error 1016 (530); use the AWS host.
+        `https://q.${s.apiRegion}.amazonaws.com/generateAssistantResponse`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/x-amz-json-1.0",
+            "x-amz-target":
+              "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+            Accept: "application/vnd.amazon.eventstream",
+            "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.26100 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
+            "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
+            "x-amzn-codewhisperer-optout": "true",
+            "x-amzn-kiro-agent-mode": "vibe",
+            "amz-sdk-invocation-id": crypto.randomUUID(),
+            "amz-sdk-request": "attempt=1; max=1",
+          },
+          body: JSON.stringify(payload),
+          signal,
+        },
+      );
+    let response = await call(auth.accessToken!);
+    // Retry only an explicit authentication rejection, never a generated/partially streamed request.
+    if (response.status === 401 || response.status === 403) {
+      await response.body?.cancel();
+      response = await call((await this.auth.get(auth.accessToken)).accessToken!);
+    }
+    if (!response.ok) throw await kiroError(response, s.apiRegion);
+    return response;
+  }
+  /**
+   * Gateway-side compaction. Reuses the longest stored summary matching the conversation's
+   * start; when the prompt is still above compactTriggerTokens, summarizes further with
+   * compactModel and stores the result. Summarizer failures leave the request uncompacted.
+   */
+  async compact(
+    prepared: Prepared,
+    original: Record<string, any>[],
+    s: Settings,
+    signal: AbortSignal,
+    touch: () => void,
+  ): Promise<{ savedTokens: number; summarized: boolean }> {
+    const c = prepared.conversation;
+    const before = conversationTokens(c);
+    const cleared = c.turns;
+    const hashes = await prefixHashes(original);
+    let base = 0,
+      summary = "";
+    for (let i = 0; i < hashes.length - 1; i += 90) {
+      const chunk = hashes.slice(i, Math.min(i + 90, hashes.length - 1));
+      const row = this.sql
+        .exec<{ entries: number; summary: string }>(
+          `SELECT entries, summary FROM summaries WHERE hash IN (${chunk.map(() => "?").join(",")}) ORDER BY entries DESC LIMIT 1`,
+          ...chunk,
+        )
+        .toArray()[0];
+      if (row && row.entries > base && cleared[row.entries]?.userInputMessage) {
+        base = row.entries;
+        summary = row.summary;
+      }
+    }
+    const apply = (cut: number, text: string) => ({
+      ...c,
+      turns: applySummary(cleared, cut, text),
+    });
+    let next = base ? apply(base, summary) : c;
+    let summarized = false;
+    if (conversationTokens(next) > s.compactTriggerTokens) {
+      const cut = chooseCut(cleared, s.compactKeepTokens, base);
+      if (cut > base) {
+        const key = hashes[cut - 1];
+        try {
+          let pending = this.summarizing.get(key);
+          if (!pending) {
+            pending = this.summarize(
+              renderTranscript(original.slice(base, cut), summary),
+              s,
+              signal,
+              touch,
+            ).finally(() => this.summarizing.delete(key));
+            this.summarizing.set(key, pending);
+          }
+          const text = await pending;
+          this.sql.exec(
+            "INSERT OR REPLACE INTO summaries VALUES(?,?,?,?)",
+            key,
+            cut,
+            text,
+            Date.now(),
+          );
+          next = apply(cut, text);
+          summarized = true;
+        } catch (error) {
+          if (signal.aborted) throw error;
+          console.warn(`compact: ${(error as Error).message}`);
+        }
+      }
+    }
+    if (next === c) return { savedTokens: 0, summarized: false };
+    prepared.conversation = next;
+    rebuild(prepared);
+    return { savedTokens: Math.max(0, before - conversationTokens(next)), summarized };
+  }
+  /** One non-streaming Kiro call that returns a summary; logged as its own ledger row. */
+  async summarize(
+    transcript: string,
+    s: Settings,
+    signal: AbortSignal,
+    touch: () => void,
+  ): Promise<string> {
+    const id = "msg_" + crypto.randomUUID(),
+      started = Date.now(),
+      model = modelId(s.compactModel);
+    const payload: Record<string, any> = buildPayload({
+      id: crypto.randomUUID(),
+      system: "",
+      turns: [
+        {
+          userInputMessage: {
+            content: summaryRequest(transcript),
+            modelId: model,
+            origin: "AI_EDITOR",
+          },
+        },
+      ],
+      tools: [],
+    });
+    const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
+    if (profileArn) payload.profileArn = profileArn;
+    const result = new Completion(estimateTokens(JSON.stringify(payload)));
+    this.sql.exec(
+      "INSERT INTO requests(id,started,endpoint,model,input_rate,output_rate,client) VALUES(?,?,?,?,?,?,?)",
+      id,
+      started,
+      "internal:compact",
+      model,
+      s.inputCreditsPerMillion,
+      s.outputCreditsPerMillion,
+      "tg-gateway",
+    );
+    let status = 200,
+      code: string | null = null;
+    try {
+      const response = await this.kiro(payload, s, signal);
+      await consume(response, undefined, result, undefined, touch);
+      const text = result.text.trim();
+      if (!text) throw new HttpError(502, "empty_summary", "Kiro returned an empty summary.");
+      return text;
+    } catch (error) {
+      status = error instanceof HttpError ? error.status : 502;
+      code = error instanceof HttpError ? error.code : "summary_failed";
+      throw error;
+    } finally {
+      result.finalize();
+      this.sql.exec(
+        "UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=? WHERE id=?",
+        Date.now(),
+        status,
+        Date.now() - started,
+        result.inputTokens,
+        result.outputTokens,
+        result.inputSource,
+        result.outputSource,
+        result.reportedCredits,
+        credits(result.inputTokens, result.outputTokens, s),
+        code,
+        id,
+      );
+    }
+  }
 }
 
 /** Structured AWS error (`__type`/`message`) from an upstream body, plus a raw excerpt for logs. */
+async function kiroError(response: Response, region: string): Promise<HttpError> {
+  const status = response.status;
+  const { reason, raw } = await upstreamReason(response);
+  // Only visible to the account owner in `wrangler tail`.
+  console.warn(`kiro_http_${status}: ${reason || raw}`);
+  return new HttpError(
+    [400, 402, 429].includes(status) ? status : 502,
+    "kiro_http_" + status,
+    // Clients get only the structured AWS error type/message, never the raw body.
+    status === 530
+      ? `No Kiro API endpoint in region "${region}". Set API region to us-east-1 (or eu-central-1) in Settings.`
+      : `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
+  );
+}
 async function upstreamReason(response: Response): Promise<{ reason: string; raw: string }> {
   let text = "";
   try {

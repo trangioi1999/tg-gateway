@@ -102,3 +102,131 @@ export function clearToolResults(c: Conversation, o: ClearOptions): ClearResult 
   const after = conversationTokens({ ...c, turns });
   return { turns, cleared, savedTokens: Math.max(0, before - after) };
 }
+
+// ---------------------------------------------------------------------------------------
+// Compaction: summarize the start of a long conversation once, reuse the summary on every
+// later turn. A summary is keyed by a chained hash of the turns it covers, so it is only
+// reused for a conversation whose start is byte-identical (no cross-session mixing).
+
+/** Per-item limits when rendering turns for the summarizer. */
+const TRANSCRIPT_RESULT_CHARS = 1500;
+const TRANSCRIPT_INPUT_CHARS = 500;
+const TRANSCRIPT_MAX_CHARS = 500_000;
+/** Not worth a summarizer call below this many tokens. */
+export const MIN_COMPACT_TOKENS = 4000;
+
+const hex = (buffer: ArrayBuffer) =>
+  [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** Turn identity without per-request fields (the model can change between turns). */
+function identity(turn: Obj): string {
+  const user = turn.userInputMessage;
+  if (!user) return JSON.stringify(turn);
+  const { modelId: _model, ...rest } = user;
+  return JSON.stringify({ userInputMessage: rest });
+}
+
+/** hashes[i] identifies turns[0..i]: h_i = sha256(h_{i-1} + turn_i). */
+export async function prefixHashes(turns: Obj[]): Promise<string[]> {
+  const enc = new TextEncoder();
+  const hashes: string[] = [];
+  let previous = "";
+  for (const turn of turns) {
+    previous = hex(
+      await crypto.subtle.digest("SHA-256", enc.encode(previous + "\n" + identity(turn))),
+    );
+    hashes.push(previous);
+  }
+  return hashes;
+}
+
+const turnTokens = (turn: Obj) => estimateTokens(JSON.stringify(turn));
+
+/**
+ * Index of the first turn to keep verbatim: the earliest user turn after `from` whose tail
+ * fits in `keepTokens`. Falls back to the current (last) turn. Returns `from` when nothing
+ * new can be summarized.
+ */
+export function chooseCut(turns: Obj[], keepTokens: number, from: number): number {
+  const last = turns.length - 1;
+  let cut = last,
+    tail = 0;
+  for (let i = last; i > from; i--) {
+    tail += turnTokens(turns[i]);
+    if (tail > keepTokens) break;
+    if (turns[i].userInputMessage) cut = i;
+  }
+  if (cut <= from) return from;
+  const summarized = turns.slice(from, cut).reduce((n, t) => n + turnTokens(t), 0);
+  return summarized >= MIN_COMPACT_TOKENS ? cut : from;
+}
+
+const clip = (text: string, max: number) =>
+  text.length > max ? text.slice(0, max) + `… [${text.length - max} more chars]` : text;
+
+/** Plain-text transcript of `turns` for the summarizer, continuing `previous` if given. */
+export function renderTranscript(turns: Obj[], previous = ""): string {
+  const lines: string[] = [];
+  if (previous) lines.push("## Summary of the conversation before this point", previous, "");
+  lines.push("## Conversation");
+  for (const turn of turns) {
+    const user = turn.userInputMessage,
+      assistant = turn.assistantResponseMessage;
+    if (user) {
+      for (const r of user.userInputMessageContext?.toolResults ?? [])
+        lines.push(
+          `Tool result (${r.toolUseId}${r.status === "error" ? ", error" : ""}): ${clip(resultText(r), TRANSCRIPT_RESULT_CHARS)}`,
+        );
+      if (user.content && user.content !== "(empty)") lines.push(`User: ${user.content}`);
+    } else if (assistant) {
+      if (assistant.content && assistant.content !== "(empty)")
+        lines.push(`Assistant: ${assistant.content}`);
+      for (const u of assistant.toolUses ?? [])
+        lines.push(
+          `Assistant called ${u.name} (${u.toolUseId}): ${clip(JSON.stringify(u.input), TRANSCRIPT_INPUT_CHARS)}`,
+        );
+    }
+  }
+  const text = lines.join("\n");
+  if (text.length <= TRANSCRIPT_MAX_CHARS) return text;
+  const head = Math.floor(TRANSCRIPT_MAX_CHARS * 0.2);
+  return text.slice(0, head) + "\n[… middle omitted …]\n" + text.slice(text.length - (TRANSCRIPT_MAX_CHARS - head));
+}
+
+export function summaryRequest(transcript: string): string {
+  return [
+    "You are compacting the history of a conversation between a user and an AI coding agent so the agent can continue without the full history.",
+    "Write a dense, factual summary that preserves:",
+    "- the user's goals, requirements and preferences (quote exact wording when it matters);",
+    "- decisions made and why;",
+    "- files, functions and identifiers touched, and their current state;",
+    "- commands run and the results that still matter (errors, test outcomes);",
+    "- what is finished, what is in progress and the next steps.",
+    "Do not continue the conversation, do not call tools, output only the summary.",
+    "",
+    transcript,
+  ].join("\n");
+}
+
+/**
+ * Replace turns[0..cut) with `summary`. The first kept turn is a user turn; its tool results
+ * (whose calls were summarized away) become plain text so no tool pair is left dangling.
+ */
+export function applySummary(turns: Obj[], cut: number, summary: string): Obj[] {
+  const tail = turns.slice(cut);
+  const first = tail[0].userInputMessage;
+  const parts = [`[Summary of the earlier conversation, written by the gateway]\n${summary}\n[End of summary]`];
+  const results: Obj[] = first.userInputMessageContext?.toolResults ?? [];
+  if (results.length)
+    parts.push(
+      "Results of the last tool calls:\n" +
+        results.map((r) => `- ${r.toolUseId}${r.status === "error" ? " (error)" : ""}: ${resultText(r)}`).join("\n"),
+    );
+  if (first.content && first.content !== "(empty)") parts.push(first.content);
+  const { toolResults: _dropped, ...context } = first.userInputMessageContext ?? {};
+  const message: Obj = { ...first, content: parts.join("\n\n") };
+  if (Object.keys(context).length) message.userInputMessageContext = context;
+  else delete message.userInputMessageContext;
+  tail[0] = { userInputMessage: message };
+  return tail;
+}

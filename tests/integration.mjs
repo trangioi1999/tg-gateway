@@ -358,7 +358,7 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
 });
 
 // Fake Kiro that records every payload it receives (GET /calls on the same host lists them).
-const recording = `const calls=[];export default {async fetch(request){if(request.method==='GET')return Response.json(calls);const payload=await request.json();calls.push(payload);const text=payload.conversationState.currentMessage.userInputMessage.content;if(text.includes('slow')){const body=new ReadableStream({async start(c){for(let i=0;i<4;i++){c.enqueue(new Uint8Array(${JSON.stringify(frame("assistantResponseEvent", { content: "." }))}));await new Promise(r=>setTimeout(r,3000));}c.enqueue(new Uint8Array(${JSON.stringify(meter)}));c.close();}});return new Response(body);}if(text.includes('broken-tool'))return new Response(new Uint8Array(${JSON.stringify(frame("toolUseEvent", { name: "Bash", toolUseId: "t1", input: '{"command":', stop: true }))}));return new Response(new Uint8Array([...${JSON.stringify(content)},...${JSON.stringify(meter)}]));}};`;
+const recording = `const calls=[];export default {async fetch(request){if(request.method==='GET')return Response.json(calls);const payload=await request.json();calls.push(payload);if(!payload.conversationState)return Response.json({profiles:[]});const text=payload.conversationState.currentMessage.userInputMessage.content;if(text.includes('slow')){const body=new ReadableStream({async start(c){for(let i=0;i<4;i++){c.enqueue(new Uint8Array(${JSON.stringify(frame("assistantResponseEvent", { content: "." }))}));await new Promise(r=>setTimeout(r,3000));}c.enqueue(new Uint8Array(${JSON.stringify(meter)}));c.close();}});return new Response(body);}if(text.includes('broken-tool'))return new Response(new Uint8Array(${JSON.stringify(frame("toolUseEvent", { name: "Bash", toolUseId: "t1", input: '{"command":', stop: true }))}));return new Response(new Uint8Array([...${JSON.stringify(content)},...${JSON.stringify(meter)}]));}};`;
 async function signedIn(mf) {
   const base = "https://gateway.test";
   const login = await mf.dispatchFetch(base + "/api/session", {
@@ -372,7 +372,7 @@ async function signedIn(mf) {
       ...options,
       headers: { "Content-Type": "application/json", Origin: base, Cookie: cookie, Authorization: "Bearer gateway-test-key", ...options.headers },
     });
-  const calls = async () => (await (await mf.getWorker("upstream")).fetch("https://q.us-east-1.amazonaws.com/calls")).json();
+  const calls = async () => (await (await (await mf.getWorker("upstream")).fetch("https://q.us-east-1.amazonaws.com/calls")).json()).filter((p) => p.conversationState);
   return { send, calls };
 }
 test("credit savers: local 1-token reply, idle timeout, no retry after billing, tool result clearing", async () => {
@@ -426,6 +426,50 @@ test("credit savers: local 1-token reply, idle timeout, no retry after billing, 
     const local = rows.find((r) => r.optimizations.includes("local_reply"));
     assert.equal(local.estimated_credits, 0);
     assert.equal(rows.find((r) => r.error_code === "invalid_tool_arguments").status, 502);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("compaction: summarize once, reuse for later turns, log the summarizer call", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    const put = (next) => send("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+    assert.equal(
+      (await put({ ...s, clearToolResults: false, responseCacheSeconds: 0, compactEnabled: true, compactTriggerTokens: 10000, compactKeepTokens: 2000 })).status,
+      200,
+    );
+    const history = [];
+    for (let i = 0; i < 12; i++)
+      history.push({ role: "user", content: `step ${i} ` + "z".repeat(4000) }, { role: "assistant", content: `ok ${i}` });
+    const ask = (messages) =>
+      send("/v1/messages", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, messages }) });
+    const first = await ask([...history, { role: "user", content: "continue" }]);
+    assert.equal(first.status, 200);
+    let log = await calls();
+    const summarizer = log.filter((p) => p.conversationState.currentMessage.userInputMessage.content.startsWith("You are compacting"));
+    assert.equal(summarizer.length, 1);
+    assert.equal(summarizer[0].conversationState.currentMessage.userInputMessage.modelId, "claude-haiku-4.5");
+    const main = JSON.stringify(log.at(-1).conversationState);
+    assert.match(main, /Summary of the earlier conversation/);
+    assert.match(main, /Hello world/, "summary text from the summarizer");
+    assert.ok(!main.includes("step 0 "), "summarized turns are not resent");
+    // Next turn shares the start: stored summary reused, no new summarizer call.
+    const second = await ask([...history, { role: "user", content: "continue" }, { role: "assistant", content: "done" }, { role: "user", content: "thanks" }]);
+    assert.equal(second.status, 200);
+    log = await calls();
+    assert.equal(log.filter((p) => p.conversationState.currentMessage.userInputMessage.content.startsWith("You are compacting")).length, 1);
+    assert.match(JSON.stringify(log.at(-1).conversationState), /Summary of the earlier conversation/);
+    const rows = (await (await send("/api/requests?days=1")).json()).items;
+    assert.equal(rows.filter((r) => r.endpoint === "internal:compact" && r.status === 200).length, 1);
+    assert.ok(rows.some((r) => r.optimizations === "compact_new" && r.saved_tokens > 5000));
+    assert.ok(rows.some((r) => r.optimizations === "compact"));
+    // Turning compaction off deletes stored summaries: the next long request is sent whole.
+    await put({ ...s, clearToolResults: false, responseCacheSeconds: 0, compactEnabled: false });
+    await ask([...history, { role: "user", content: "again" }]);
+    assert.match(JSON.stringify((await calls()).at(-1).conversationState), /step 0 /);
   } finally {
     await mf.dispose();
   }

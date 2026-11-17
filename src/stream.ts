@@ -196,7 +196,7 @@ export class Formatter {
 }
 export async function consume(
   response: Response,
-  prepared: Prepared,
+  _prepared: Prepared | undefined,
   result: Completion,
   emit?: (event: { text?: string; tool?: ToolCall }) => Promise<void>,
   /** Called for every upstream chunk (keeps the idle timeout alive). */
