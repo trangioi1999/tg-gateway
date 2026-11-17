@@ -40,6 +40,20 @@ export function wrangler(args, input, capture = false) {
     );
   });
 }
+/** Builds the web console into web/dist (wrangler's assets directory). */
+export function buildWeb() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["node_modules/vite/bin/vite.js", "build", "--config", "web/vite.config.ts"],
+      { stdio: "inherit" },
+    );
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`Web console build failed (${code}).`)),
+    );
+  });
+}
 export async function prompt(label, secret = false) {
   if (!process.stdin.isTTY)
     throw new Error("Run setup in an interactive terminal.");

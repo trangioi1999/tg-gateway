@@ -5,22 +5,34 @@
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "npm run build:web && wrangler dev",
     "dev:init": "node scripts/dev-init.mjs",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p web",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "build": "npm run build:web && wrangler deploy --dry-run --outdir dist",
     "test:integration": "npm run build && node --test tests/integration.mjs",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build:web && wrangler deploy",
     "login": "wrangler login",
     "setup": "node scripts/setup.mjs",
-    "upload:credentials": "node scripts/upload-credentials.mjs"
+    "upload:credentials": "node scripts/upload-credentials.mjs",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261116.1",
     "@types/node": "^24.0.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
     "miniflare": "5.20261116.0-beta",
     "typescript": "^5.9.0",
+    "vite": "5.4.11",
     "wrangler": "4.163.0"
+  },
+  "dependencies": {
+    "@fontsource/be-vietnam-pro": "5.1.0",
+    "@fontsource/jetbrains-mono": "5.1.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   }
 }

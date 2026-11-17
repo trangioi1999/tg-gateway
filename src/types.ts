@@ -36,6 +36,13 @@ export interface Settings {
   compactModel: string;
   /** Replay identical completed requests from memory for this long (0 = off). */
   responseCacheSeconds: number;
+  /** Name shown in the console header. */
+  displayName: string;
+  /** Store request/response payloads for debugging: never, only failed requests, or all. */
+  capturePayloads: "off" | "errors" | "all";
+  payloadRetentionDays: number;
+  /** Monthly Anthropic spend budget in USD (0 = none). */
+  anthropicMonthlyBudgetUsd: number;
 }
 export const defaults: Settings = {
   enabled: true,
@@ -57,6 +64,10 @@ export const defaults: Settings = {
   compactKeepTokens: 30_000,
   compactModel: "claude-haiku-4.5",
   responseCacheSeconds: 300,
+  displayName: "Admin",
+  capturePayloads: "off",
+  payloadRetentionDays: 3,
+  anthropicMonthlyBudgetUsd: 0,
 };
 export class HttpError extends Error {
   status: number;
@@ -120,9 +131,26 @@ export function validateSettings(raw: unknown): Settings {
     ["compactTriggerTokens", 10_000, 2_000_000],
     ["compactKeepTokens", 1000, 1_000_000],
     ["responseCacheSeconds", 0, 3600],
+    ["payloadRetentionDays", 1, 30],
   ] as const)
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max)
       throw new HttpError(400, "invalid_settings", `Invalid ${key}.`);
+  if (
+    typeof s.displayName !== "string" ||
+    s.displayName.trim().length < 1 ||
+    s.displayName.trim().length > 40 ||
+    /[\u0000-\u001f\u007f]/.test(s.displayName)
+  )
+    throw new HttpError(400, "invalid_settings", "displayName must be 1–40 characters without control characters.");
+  if (!["off", "errors", "all"].includes(s.capturePayloads))
+    throw new HttpError(400, "invalid_settings", "capturePayloads must be off, errors or all.");
+  if (
+    typeof s.anthropicMonthlyBudgetUsd !== "number" ||
+    !Number.isFinite(s.anthropicMonthlyBudgetUsd) ||
+    s.anthropicMonthlyBudgetUsd < 0 ||
+    s.anthropicMonthlyBudgetUsd > 1e6
+  )
+    throw new HttpError(400, "invalid_settings", "Invalid anthropicMonthlyBudgetUsd.");
   for (const key of ["clearToolResults", "clearToolInputs", "compactEnabled"] as const)
     if (typeof s[key] !== "boolean")
       throw new HttpError(400, "invalid_settings", `Invalid ${key}.`);

@@ -1,3 +1,4 @@
+import type { KiroStatus } from "./dashboard/contract.ts";
 import { digest, seal, unseal } from "./security.ts";
 import { HttpError, defaults, type Env } from "./types.ts";
 import { object } from "./protocol.ts";
@@ -16,12 +17,6 @@ interface Stored {
   credentials: Credentials;
   /** "dashboard" when uploaded from Settings; absent when derived from the secret. */
   source?: "dashboard";
-}
-export interface KiroStatus {
-  source: "dashboard" | "secret" | "none";
-  type?: "social" | "sso";
-  region?: string;
-  expiresAt?: string;
 }
 const BUILDER_ID_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK";
 const FIELDS = ["refreshToken", "accessToken", "expiresAt", "profileArn", "region", "clientId", "clientSecret"] as const;

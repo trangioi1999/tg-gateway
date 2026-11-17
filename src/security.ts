@@ -97,10 +97,11 @@ export async function unseal<T>(secret: string, value: string): Promise<T> {
   );
   return JSON.parse(new TextDecoder().decode(plain)) as T;
 }
-export async function readJson(
+/** Request body as text: requires a JSON content type and at most `limit` bytes. */
+export async function readText(
   request: Request,
   limit = 1_048_576,
-): Promise<unknown> {
+): Promise<string> {
   if (!request.headers.get("content-type")?.includes("application/json"))
     throw new HttpError(415, "invalid_content_type", "Use application/json.");
   if (!request.body)
@@ -132,9 +133,18 @@ export async function readJson(
     buffer.set(chunk, at);
     at += chunk.byteLength;
   }
+  return new TextDecoder().decode(buffer);
+}
+export function parseJson(text: string): unknown {
   try {
-    return JSON.parse(new TextDecoder().decode(buffer));
+    return JSON.parse(text);
   } catch {
     throw new HttpError(400, "invalid_json", "Malformed JSON.");
   }
+}
+export async function readJson(
+  request: Request,
+  limit = 1_048_576,
+): Promise<unknown> {
+  return parseJson(await readText(request, limit));
 }

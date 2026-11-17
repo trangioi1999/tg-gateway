@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { prompt, wrangler, credentialsFile } from "./shared.mjs";
+import { prompt, wrangler, credentialsFile, buildWeb } from "./shared.mjs";
 
 try {
   console.log(
@@ -20,6 +20,8 @@ try {
     throw new Error(
       "Use distinct admin/API secrets with the required lengths.",
     );
+  console.log("Building the web console...");
+  await buildWeb();
   console.log("Deploying Worker and SQLite-backed Durable Object...");
   await wrangler(["deploy"]);
   const list = await wrangler(["secret", "list"], undefined, true);

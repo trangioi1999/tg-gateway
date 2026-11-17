@@ -1,0 +1,9 @@
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-weight:var(--w-body);font-size:14px;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent-ink);text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--f-mono);font-size:12px}
+h1,h2,h3,.disp{font-family:var(--f-display);font-weight:var(--w-h);letter-spacing:var(--track-h)}
+

@@ -7,3 +7,6 @@ dist/
 credentials*.json
 *.log
 .DS_Store
+
+web/dist/
+.playwright-mcp/

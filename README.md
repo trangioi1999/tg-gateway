@@ -8,14 +8,20 @@ Gateway TypeScript chạy trực tiếp trên **Cloudflare Workers**, có dashbo
 - Text chat, system prompt, lịch sử hội thoại, function/tool calls, JSON và SSE streaming.
 - Refresh token Kiro Desktop và AWS SSO/OIDC; gom các request refresh đồng thời thành một lần refresh.
 - Parse AWS binary Event Stream theo frame, kiểm tra CRC, xử lý Unicode chia nhỏ qua nhiều chunk và báo lỗi khi stream bị cắt.
-- Dashboard: tổng request, thành công/lỗi/đang chạy, token input/output, độ trễ, biểu đồ UTC, thống kê model, lịch sử phân trang, lọc, CSV.
+- Console web (React + TypeScript + Vite, trong `web/`) gồm các màn hình:
+  - **Đăng nhập**.
+  - **Tổng quan**: tổng request, thành công/lỗi/đang chạy, token input/output, độ trễ, thống kê model; xem theo ngày/tuần/tháng và theo nhà cung cấp.
+  - **Lịch sử request**: phân trang, lọc, CSV; bấm một dòng để mở dialog chi tiết gồm nguồn gọi, các bước xử lý, payload/response (nếu đã bật capture) và lỗi.
+  - **Cài đặt** (8 mục).
+- Thống kê theo giờ được giữ vĩnh viễn: xóa log/lịch sử request không làm mất số tổng.
+- Credit thật của nhà cung cấp (cache 5 phút): Kiro (`getUsageLimits`), OpenRouter (số dư), Claude API (chi phí tháng tính từ usage).
 - Hai cột credit độc lập: **credit quy đổi nội bộ** và **credit Kiro trả về**.
 - Settings: bật/tắt gateway, model allowlist, API region, rate limit, timeout, retention, tỷ lệ token/credit, mục tiêu ngân sách tháng.
 - Tiết kiệm credit Kiro: xóa tool result cũ, compact hội thoại dài, cache request trùng, trả lời tại chỗ request `max_tokens: 1`, timeout theo thời gian im lặng (xem [Tiết kiệm credit Kiro](#tiết-kiệm-credit-kiro)).
 - Secrets chỉ nằm ở Cloudflare; dashboard không đọc hoặc trả giá trị bí mật. Token refresh xoay vòng được mã hóa AES-GCM trước khi lưu.
 - Cookie đăng nhập HttpOnly + SameSite=Strict (+ Secure khi HTTPS), CSRF origin check, giới hạn đăng nhập, CSP, API key riêng.
 - Nhận diện agent gọi tới (Claude Code, Claude Code trong IDE, Cursor, Cline, Roo Code, Kilo Code, Continue, opencode, Aider, Anthropic/OpenAI SDK, curl) từ User-Agent, hiển thị thống kê kèm logo agent và logo model (Claude, DeepSeek, Qwen, Gemini, OpenAI, OpenRouter; logo từ LobeHub icons, xem `NOTICE`). Header do client tự khai nên chỉ dùng để thống kê, không dùng cho xác thực.
-- Không lưu nội dung prompt/câu trả lời. Chỉ lưu metadata request (ngoại lệ: bản tóm tắt khi bật Compact, xem bên dưới). Worker observability tắt mặc định để tránh log không cần thiết.
+- Mặc định không lưu nội dung prompt/câu trả lời, chỉ lưu metadata request (ngoại lệ: bản tóm tắt khi bật Compact, xem bên dưới; và payload capture khi bạn chủ động bật, xem [Payload capture](#payload-capture)). Worker observability tắt mặc định để tránh log không cần thiết.
 
 ## Chạy local
 
@@ -25,7 +31,11 @@ npm run dev:init
 npm run dev
 ```
 
-Mở URL mà Wrangler in ra, thường là `http://localhost:8787`.
+Mở URL mà Wrangler in ra, thường là `http://localhost:8787`. `npm run dev` build console một lần vào `web/dist` (thư mục `assets.directory` của Wrangler, không commit vào git) rồi chạy `wrangler dev` (cổng 8787). Console không tự build lại khi bạn sửa code trong `web/`.
+
+Khi sửa giao diện, chạy thêm `npm run dev:web` ở terminal khác: Vite chạy ở `http://localhost:5173` với hot reload và proxy `/api`, `/v1`, `/health` sang `:8787`.
+
+Build/deploy: `npm run build` (build web rồi `wrangler deploy --dry-run`), `npm run deploy` (build web rồi deploy).
 
 - Mật khẩu **chỉ dùng local**: `local-dev-admin-change-me`.
 - API key **chỉ dùng local**: `local-dev-api-key-change-me`.
@@ -239,6 +249,14 @@ Trong phiên đang chạy dùng `/model <id>`; mặc định đặt bằng `ANTH
 - Token lấy từ `usage` của nhà cung cấp (ghi là *reported*); OpenRouter trả thêm chi phí USD, lưu ở cột `cost_usd` và hiện cạnh credit trong lịch sử.
 - Không qua Kiro nên không cần credentials Kiro và không có credit Kiro. Tool calling phụ thuộc model/nhà cung cấp: tài liệu deploy.com hiện không nói tới tool calling, nên Claude Code có thể không dùng được tool với model đó.
 
+## Payload capture
+
+Cài đặt → Dữ liệu & log. **Mặc định tắt.** Có hai chế độ: "Chỉ khi lỗi" (chỉ lưu request lỗi) và "Tất cả". Mỗi payload/response bị cắt ở 64 KB và được giữ N ngày theo cấu hình rồi bị dọn. Nội dung hiển thị trong dialog chi tiết của Lịch sử request.
+
+**Lưu ý riêng tư:** payload có thể chứa mã nguồn và dữ liệu riêng tư của bạn. Chỉ bật khi cần gỡ lỗi, đặt thời gian giữ ngắn, và tắt khi xong. Chuyển về "Tắt" rồi lưu sẽ xóa toàn bộ payload đã lưu; payload cũng bị xóa cùng log của request.
+
+Mỗi log request lưu kèm IP, quốc gia, thành phố và Cloudflare colo của client (để hiện nguồn request trong dialog chi tiết). Các thông tin này bị xóa cùng log (hết hạn retention hoặc "Xóa log").
+
 ## Token và credit: ý nghĩa số liệu
 
 1. Nếu event upstream trả `inputTokens`/`outputTokens`, gateway ghi nhận token là **reported**.
@@ -248,7 +266,7 @@ Trong phiên đang chạy dùng `/model <id>`; mặc định đặt bằng `ANTH
 5. Credit Kiro là giá trị số `usage` trong `meteringEvent`. Thiếu event thì lưu `null`, UI hiển thị `—`; giá trị 0 thật vẫn hiển thị 0. Dashboard cho biết có số liệu ở bao nhiêu request.
 6. **Credit Kiro không phải số dư, hóa đơn hoặc quota tài khoản.** Gateway chỉ biết request đi qua nó; request trực tiếp từ IDE/CLI không xuất hiện ở đây. Cần đối chiếu portal Kiro nếu cần số dư hoặc hóa đơn.
 7. Stream kết thúc sạch nhưng thiếu `meteringEvent`/context event vẫn tính là thành công (200), kèm mã `no_completion_signal` trong lịch sử để dễ phát hiện khi giao thức Kiro thay đổi. Tool call bị cắt giữa chừng vẫn là lỗi. Stream lỗi/ngắt có thể chỉ ghi được phần token đã nhận. Không trả HTTP 200 thành công trong nhật ký nếu nhận lỗi sau khi bắt đầu SSE; HTTP headers thực tế của SSE đã gửi vẫn là 200, lỗi được trả qua event.
-8. `monthlyCreditBudget` chỉ là mục tiêu theo dõi, **không chặn cứng chi phí**. Báo cáo tháng dựa trên UTC và dữ liệu còn lưu. Retention thấp hơn một tháng sẽ khiến báo cáo tháng thiếu lịch sử.
+8. `monthlyCreditBudget` chỉ là mục tiêu theo dõi, **không chặn cứng chi phí**. Báo cáo tháng theo múi giờ của trình duyệt và dựa trên thống kê theo giờ (giữ vĩnh viễn).
 
 Request chưa qua xác thực không vào usage ledger. Request gọi chat đã qua xác thực được ghi lại kể cả validation error, rate limit và lỗi credentials. Rate limit là tổng số chat request/phút cho gateway một tài khoản; `/v1/models` không tính vào ledger.
 
@@ -264,7 +282,16 @@ Cloudflare Secrets ────────────────────�
 
 Một Durable Object có tên ổn định `primary` điều phối một tài khoản Kiro: refresh token không tranh chấp giữa nhiều isolate và rate limit/ledger nhất quán. Object có thể phục vụ nhiều request bất đồng bộ, nhưng đây là kiến trúc cho cá nhân/nhóm nhỏ, không phải hệ thống nhiều tenant. Static assets được Worker phục vụ; `/api/*` yêu cầu session, `/v1/*` yêu cầu API key. Alarm dọn lịch sử mỗi giờ và đánh dấu request bị gián đoạn quá 15 phút là `598 interrupted_unknown` (usage không thể khôi phục).
 
-Các file chính: `src/index.ts` (API + SQL ledger), `src/protocol.ts` (chuyển đổi + binary parser), `src/kiro-auth.ts` (refresh + vault), `src/stream.ts` (SSE/JSON), `src/security.ts` (session/crypto), `public/` (dashboard).
+Các file chính:
+
+- `src/index.ts`: entry của Worker (chuyển `/api/*`, `/v1/*`, `/health` vào Durable Object, phục vụ static assets, gắn security headers/CSP).
+- `src/gateway.ts`: Gateway Durable Object (`/v1/*`, `/api/*`, ledger, alarm dọn dữ liệu).
+- `src/dashboard/api.ts`: các handler `/api/*` của console (overview, lịch sử, chi tiết, export, providers); `src/dashboard/period.ts`: khoảng ngày/tuần/tháng theo múi giờ; `src/dashboard/contract.ts`: kiểu dữ liệu dùng chung với `web/`.
+- `src/db/schema.ts`: schema SQLite và migration; `src/db/stats.ts`: bảng thống kê theo giờ `stats_hourly`.
+- `src/trace.ts`: các bước xử lý của request và payload capture.
+- `src/upstream/kiro.ts`: gọi Kiro runtime; `src/upstream/quota.ts`: quota/credit của các nhà cung cấp.
+- `src/protocol.ts` (chuyển đổi + binary parser), `src/kiro-auth.ts` (refresh + vault), `src/stream.ts` (SSE/JSON), `src/security.ts` (session/crypto).
+- `web/`: console React, build ra `web/dist` và được Worker phục vụ qua `assets.directory`.
 
 ## Kiểm thử
 

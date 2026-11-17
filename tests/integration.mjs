@@ -49,7 +49,8 @@ const anthropicSse = [
   .map((e) => "event: " + e.type + "\ndata: " + JSON.stringify(e) + "\n\n")
   .join("");
 const native = `if(new URL(request.url).hostname==='api.anthropic.com'){if(request.headers.get('x-api-key')!=='sk-ant-test')return Response.json({type:'error',error:{type:'authentication_error',message:'bad key'}},{status:401});if(request.headers.get('anthropic-beta')!=='claude-code-20250219')return Response.json({type:'error',error:{type:'invalid_request_error',message:'beta not forwarded'}},{status:400});const body=await request.json();if(body.model!=='claude-sonnet-5-5')return Response.json({type:'error',error:{type:'invalid_request_error',message:'prefix leaked'}},{status:400});if(body.messages[0].content==='overloaded')return Response.json({type:'error',error:{type:'overloaded_error',message:'Overloaded'}},{status:529,headers:{'retry-after':'7'}});return new Response(${JSON.stringify(anthropicSse)},{headers:{'Content-Type':'text/event-stream'}});}`;
-const upstream = `export default {async fetch(request){${native}${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
+const quotaGets = `if(request.method==='POST'&&new URL(request.url).pathname==='/ListAvailableProfiles')return Response.json({profiles:[{arn:'arn:aws:codewhisperer:us-east-1:1:profile/T'}]});if(request.method==='GET'){const u=new URL(request.url);if(u.hostname==='q.us-east-1.amazonaws.com'&&u.pathname==='/getUsageLimits')return Response.json({subscriptionInfo:{subscriptionTitle:"KIRO PRO"},nextDateReset:1764547200,usageBreakdownList:[{resourceType:"CREDIT",currentUsageWithPrecision:235.4,usageLimitWithPrecision:2000}]});if(u.hostname==='openrouter.ai'&&u.pathname==='/api/v1/credits')return Response.json({data:{total_credits:30,total_usage:11.4}});}`;
+const upstream = `export default {async fetch(request){${quotaGets}${native}${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
 function gateway(upstreamScript) {
   return new Miniflare(
     convertV4MiniflareOptions({
@@ -347,9 +348,28 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     s.enabled = false;
     await send("/api/settings", { method: "PUT", body: JSON.stringify(s) });
     assert.equal((await chat("hello")).status, 503);
+    // Stats are recorded once per finished request (backfill + live upserts do not double count).
+    const totalsBeforeClear = (await (await send("/api/overview?period=day&tz=0")).json()).totals;
+    const dayList = await (await send("/api/requests?period=day&tz=0")).json();
+    const inFlight = (await (await send("/api/requests?period=day&tz=0&status=active")).json()).total;
+    assert.equal(totalsBeforeClear.requests, dayList.total - inFlight);
+    assert.equal(dayList.summary.requests, totalsBeforeClear.requests);
+    assert.equal(typeof dayList.range.from, "number");
     const cleared = await (await send("/api/requests", { method: "DELETE" })).json();
     assert.ok(cleared.deleted >= allRows.length);
     assert.equal((await (await send("/api/requests?days=1")).json()).total, 0);
+    const ov = await (await send("/api/overview?period=day&tz=0")).json();
+    assert.ok(ov.totals.requests > 0, "stats survive history clearing");
+    assert.equal(ov.totals.requests, totalsBeforeClear.requests);
+    assert.ok(Array.isArray(ov.byProvider) && ov.byProvider.some((p) => p.provider === "kiro"));
+    assert.equal(typeof ov.previous.requests, "number");
+    assert.equal(ov.month.requests >= ov.totals.requests, true);
+    assert.equal(ov.active, 0);
+    assert.equal(
+      (await (await send("/api/overview?period=day&tz=0&provider=anthropic")).json()).totals.requests,
+      ov.byProvider.find((p) => p.provider === "anthropic").requests,
+    );
+    assert.equal((await send("/api/overview?provider=bogus")).status, 400);
     await send("/api/session", { method: "DELETE" });
     cookie = "";
     assert.equal((await send("/api/overview")).status, 401);
@@ -502,6 +522,178 @@ test("response cache: identical resend replays, concurrent duplicates share one 
     const hits = rows.filter((r) => r.optimizations === "cache_hit");
     assert.equal(hits.length, 2);
     assert.ok(hits.every((r) => r.estimated_credits === 0 && r.reported_credits === null));
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("stats: clearing history mid-stream keeps the in-flight row and counts it once", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0 }) })).status, 200);
+    const ask = (content, stream = false) =>
+      send("/v1/messages", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, stream, messages: [{ role: "user", content }] }) });
+    assert.equal((await ask("warm up")).status, 200);
+    const overview = async () => (await (await send("/api/overview?period=day&tz=0")).json());
+    const before = await overview();
+    assert.equal(before.totals.requests, 1);
+    const slow = await ask("slow stream", true);
+    assert.equal(slow.status, 200);
+    assert.equal((await overview()).active, 1);
+    assert.equal((await (await send("/api/requests", { method: "DELETE" })).json()).deleted, 1);
+    assert.match(await slow.text(), /message_stop/);
+    const rows = (await (await send("/api/requests?period=day&tz=0")).json()).items;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 200);
+    const after = await overview();
+    assert.equal(after.totals.requests, before.totals.requests + 1);
+    assert.equal(after.active, 0);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("request detail: trace steps, source info, payload capture and search", async () => {
+  const mf = gateway(upstream);
+  try {
+    const { send } = await signedIn(mf);
+    let s = (await (await send("/api/settings")).json()).settings;
+    const put = (next) => send("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+    s = { ...s, responseCacheSeconds: 0, capturePayloads: "errors", models: [...s.models, "anthropic/claude-sonnet-5-5"] };
+    assert.equal((await put(s)).status, 200);
+    const chat = (text) =>
+      send("/v1/chat/completions", {
+        method: "POST",
+        headers: { "User-Agent": "trace-test/1.0" },
+        body: JSON.stringify({ model: "claude-sonnet-4.5", messages: [{ role: "user", content: text }] }),
+      });
+    const detail = async (id) => (await send("/api/requests/" + id)).json();
+    const ok = await chat("hello");
+    assert.equal(ok.status, 200);
+    const okDetail = await detail(ok.headers.get("x-request-id"));
+    const keys = okDetail.steps.map((step) => step.key);
+    for (const key of ["received", "auth", "optimize", "upstream", "done"]) assert.ok(keys.includes(key), key);
+    assert.equal(okDetail.steps.find((step) => step.key === "upstream").detail, "q.us-east-1.amazonaws.com");
+    assert.equal(okDetail.steps.find((step) => step.key === "optimize").state, "skip");
+    assert.equal(okDetail.request.user_agent, "trace-test/1.0");
+    assert.equal(okDetail.request.upstream_host, "q.us-east-1.amazonaws.com");
+    assert.equal(typeof okDetail.request.ttfb, "number");
+    assert.equal(okDetail.request.steps, undefined, "steps are returned once, parsed");
+    assert.equal(okDetail.payload, null, "errors mode keeps successful payloads out");
+    // Errors mode: the failed request's payload is stored.
+    const limited = await chat("rate-limit");
+    assert.equal(limited.status, 429);
+    const bad = await detail(limited.headers.get("x-request-id"));
+    assert.match(bad.payload.request, /rate-limit/);
+    assert.match(bad.payload.response, /"error"/);
+    assert.equal(bad.payload.truncated, false);
+    assert.equal(bad.steps.at(-1).key, "error");
+    assert.equal(bad.steps.at(-1).detail, bad.request.error_code);
+    assert.ok(bad.request.error_message);
+    // Unknown or malformed id.
+    assert.equal((await send("/api/requests/msg_00000000-0000-0000-0000-000000000000")).status, 404);
+    assert.equal((await send("/api/requests/nope")).status, 404);
+    // All mode: the native Anthropic SSE relay is captured as relayed.
+    assert.equal((await put({ ...s, capturePayloads: "all" })).status, 200);
+    const native = await send("/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": "gateway-test-key", "anthropic-version": "2023-06-01", "anthropic-beta": "claude-code-20250219" },
+      body: JSON.stringify({ model: "anthropic/claude-sonnet-5-5", stream: true, max_tokens: 100, messages: [{ role: "user", content: "hi" }] }),
+    });
+    const nativeText = await native.text();
+    const nativeDetail = await detail(native.headers.get("x-request-id"));
+    assert.equal(nativeDetail.payload.response, nativeText);
+    assert.equal(nativeDetail.steps.find((step) => step.key === "optimize").detail, "not_kiro");
+    assert.equal(nativeDetail.steps.find((step) => step.key === "stream").state, "done");
+    // Search: case-insensitive, wildcards are literal.
+    const search = async (q) => (await (await send("/api/requests?q=" + encodeURIComponent(q))).json()).total;
+    assert.equal(await search("KIRO_HTTP_429"), 1);
+    assert.equal(await search("%"), 0);
+    assert.equal(await search("kir__http"), 0, "_ is not a wildcard");
+    // Turning capture off deletes stored payloads.
+    assert.equal((await put({ ...s, capturePayloads: "off" })).status, 200);
+    assert.equal((await detail(native.headers.get("x-request-id"))).payload, null);
+    assert.equal((await detail(limited.headers.get("x-request-id"))).payload, null);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("payload capture: turning it off mid-stream leaves no payload behind", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    const put = (next) => send("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+    assert.equal((await put({ ...s, responseCacheSeconds: 0, capturePayloads: "all" })).status, 200);
+    const slow = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "slow private" }] }),
+    });
+    assert.equal(slow.status, 200);
+    assert.equal((await put({ ...s, responseCacheSeconds: 0, capturePayloads: "off" })).status, 200);
+    assert.match(await slow.text(), /message_stop/);
+    const detail = await (await send("/api/requests/" + slow.headers.get("x-request-id"))).json();
+    assert.equal(detail.request.status, 200);
+    assert.equal(detail.payload, null);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("provider quotas: Kiro credits, OpenRouter balance, cost, and failures stay per entry", async () => {
+  const mf = gateway(upstream);
+  try {
+    const { send } = await signedIn(mf);
+    const res = await send("/api/providers");
+    assert.equal(res.status, 200);
+    const { providers } = await res.json();
+    assert.deepEqual(providers.map((p) => p.id), ["kiro", "anthropic", "openrouter", "deploy"]);
+    const by = Object.fromEntries(providers.map((p) => [p.id, p]));
+    assert.equal(by.kiro.ok, true);
+    assert.equal(by.kiro.used, 235.4);
+    assert.equal(by.kiro.limit, 2000);
+    assert.equal(by.kiro.plan, "KIRO PRO");
+    assert.ok(Math.abs(by.openrouter.balanceUsd - 18.6) < 1e-9);
+    assert.equal(by.anthropic.unit, "usd");
+    assert.equal(typeof by.anthropic.monthCostUsd, "number");
+    assert.equal(by.deploy.ok, true);
+  } finally {
+    await mf.dispose();
+  }
+  const failing = `export default {async fetch(request){const u=new URL(request.url);if(u.pathname==='/getUsageLimits')return new Response('secret body',{status:500});if(u.hostname==='openrouter.ai')return Response.json({oops:1});return Response.json({});}};`;
+  const mf2 = gateway(failing);
+  try {
+    const { send } = await signedIn(mf2);
+    const res = await send("/api/providers");
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(!text.includes("secret body"));
+    const by = Object.fromEntries(JSON.parse(text).providers.map((p) => [p.id, p]));
+    assert.equal(by.kiro.ok, false);
+    assert.equal(by.kiro.error, "http_500");
+    assert.equal(by.openrouter.error, "bad_response");
+  } finally {
+    await mf2.dispose();
+  }
+});
+
+test("provider quotas: healthy answers are cached, failures and sign-in changes are not", async () => {
+  const counting = `let n=0;export default {async fetch(request){const u=new URL(request.url);if(u.pathname==='/count')return Response.json({n});if(u.pathname==='/ListAvailableProfiles')return Response.json({profiles:[{arn:'arn:x'}]});if(u.pathname==='/getUsageLimits'){n++;return n===1?new Response('x',{status:503}):Response.json({usageBreakdownList:[{resourceType:'CREDIT',currentUsage:1,usageLimit:2}]});}if(u.hostname==='openrouter.ai')return Response.json({data:{total_credits:2,total_usage:1}});return Response.json({});}};`;
+  const mf = gateway(counting);
+  try {
+    const { send } = await signedIn(mf);
+    const count = async () => (await (await (await mf.getWorker("upstream")).fetch("https://q.us-east-1.amazonaws.com/count")).json()).n;
+    const kiro = async (q = "") => (await (await send("/api/providers" + q)).json()).providers[0];
+    assert.equal((await kiro()).error, "http_503");
+    assert.equal((await kiro()).ok, true);
+    assert.equal(await count(), 2);
+    assert.equal((await kiro()).ok, true);
+    assert.equal(await count(), 2, "healthy answer served from cache");
+    await kiro("?refresh=1");
+    assert.equal(await count(), 3);
   } finally {
     await mf.dispose();
   }
