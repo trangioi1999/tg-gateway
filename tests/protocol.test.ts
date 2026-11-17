@@ -98,16 +98,14 @@ test("tool results remain paired with assistant tool calls", () => {
   );
 });
 test("validates dangling tools, unsupported inputs and models", () => {
-  assert.throws(() =>
-    prepare(
-      {
-        ...request,
-        messages: [{ role: "tool", tool_call_id: "missing", content: "x" }],
-      },
-      "openai",
-      defaults,
-    ),
-  );
+  // A result without its call is kept as text instead of failing the request.
+  const orphan = prepare(
+    { ...request, messages: [{ role: "tool", tool_call_id: "missing", content: "x" }] },
+    "openai",
+    defaults,
+  ).payload.conversationState.currentMessage.userInputMessage;
+  assert.equal(orphan.content, "[Result of tool call missing: x]");
+  assert.equal(orphan.userInputMessageContext, undefined);
   assert.throws(() =>
     prepare({ ...request, model: "not-enabled" }, "openai", defaults),
   );
@@ -414,4 +412,87 @@ test("tool names Kiro rejects are renamed, deduplicated and mapped back", async 
     () => prepare({ model: defaults.models[0], tools: [{ name: "", input_schema: schema }], messages: [{ role: "user", content: "hi" }] }, "anthropic", defaults),
     /1–256 characters/,
   );
+});
+
+test("unpairable tool calls become text instead of a 400 (Claude Code compaction, MCP churn)", () => {
+  const schema = { type: "object", properties: {} };
+  const history = [
+    { role: "user", content: "start" },
+    {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "hmm", signature: "sig" },
+        { type: "text", text: "Checking." },
+        { type: "tool_use", id: "a", name: "Read", input: { path: "x" } },
+        { type: "tool_use", id: "b", name: "mcp__gone__tool", input: { q: 1 } },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "a", content: "file body" },
+        { type: "tool_result", tool_use_id: "b", content: "gone result" },
+      ],
+    },
+    { role: "assistant", content: [{ type: "tool_use", id: "c", name: "Read", input: {} }] },
+    // Interrupted: no result for c, user just types.
+    { role: "user", content: "stop, summarize" },
+  ];
+  // Normal turn: Read declared, the MCP tool no longer is.
+  const p = prepare(
+    { model: defaults.models[0], tools: [{ name: "Read", input_schema: schema }], messages: history },
+    "anthropic",
+    defaults,
+  );
+  const state = (p.payload as any).conversationState;
+  const first = state.history[1].assistantResponseMessage;
+  assert.deepEqual(first.toolUses.map((u: any) => u.toolUseId), ["a"]);
+  assert.match(first.content, /^Checking\.\n\[Called tool mcp__gone__tool \(b\) with \{"q":1\}\]$/);
+  assert.ok(!first.content.includes("hmm"), "thinking dropped");
+  const results = state.history[2].userInputMessage;
+  assert.deepEqual(results.userInputMessageContext.toolResults.map((r: any) => r.toolUseId), ["a"]);
+  assert.match(results.content, /^\[Result of tool call b: gone result\]/);
+  assert.equal(state.history[3].assistantResponseMessage.toolUses, undefined);
+  assert.match(state.history[3].assistantResponseMessage.content, /Called tool Read \(c\)/);
+  // Compaction request: same history, no tools at all.
+  const compact = prepare({ model: defaults.models[0], messages: history }, "anthropic", defaults);
+  const text = JSON.stringify((compact.payload as any).conversationState);
+  assert.ok(!text.includes('"toolUses"') && !text.includes('"toolResults"'));
+  assert.match(text, /Result of tool call a: file body/);
+  // Duplicate IDs: the second call becomes text.
+  const dup = prepare(
+    {
+      model: defaults.models[0],
+      tools: [{ name: "Read", input_schema: schema }],
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: [{ type: "tool_use", id: "d", name: "Read", input: {} }, { type: "tool_use", id: "d", name: "Read", input: { again: true } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "d", content: "one" }, { type: "tool_result", tool_use_id: "d", content: "two" }] },
+      ],
+    },
+    "anthropic",
+    defaults,
+  );
+  const ds = (dup.payload as any).conversationState;
+  assert.equal(ds.history[1].assistantResponseMessage.toolUses.length, 1);
+  assert.equal(ds.currentMessage.userInputMessage.userInputMessageContext.toolResults.length, 1);
+  assert.match(ds.currentMessage.userInputMessage.content, /Result of tool call d: two/);
+});
+
+test("non-text blocks inside a tool result become a note", () => {
+  const p = prepare(
+    {
+      model: defaults.models[0],
+      tools: [{ name: "Read", input_schema: { type: "object", properties: {} } }],
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "i", name: "Read", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "i", content: [{ type: "text", text: "png:" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }] }] },
+      ],
+    },
+    "anthropic",
+    defaults,
+  );
+  const r = (p.payload as any).conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults[0];
+  assert.equal(r.content[0].text, "png:\n[image omitted: the Kiro route accepts text only]");
 });
