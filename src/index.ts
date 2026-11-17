@@ -388,7 +388,8 @@ export class Gateway extends DurableObject<Env> {
       COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
       COALESCE(SUM(estimated_credits),0) estimated_credits,SUM(reported_credits) reported_credits,
       COUNT(reported_credits) reported_requests,COALESCE(SUM(input_source='estimated' OR output_source='estimated'),0) estimated_token_requests,
-      COALESCE(AVG(CASE WHEN finished IS NOT NULL THEN latency END),0) avg_latency`;
+      COALESCE(AVG(CASE WHEN finished IS NOT NULL THEN latency END),0) avg_latency,
+      COALESCE(SUM(saved_tokens),0) saved_tokens`;
     const totals = this.sql
       .exec(`SELECT ${aggregate} FROM requests WHERE started>=?`, since)
       .one();
