@@ -63,7 +63,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
   const summary = data?.summary;
   return (
-    <section className="page">
+    <section className="page requests">
       <div className="top">
         <div>
           <div className="crumb">Workspace</div>
@@ -131,15 +131,16 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         ].map(([label, value]) => (
           <article className="card" key={label}>
             <small>{label}</small>
-            <b className="num">
+            <b className={`num${label === "Lỗi" ? " down" : label === "Token tiết kiệm" ? " up" : ""}`}>
               {loading && !data ? <Skeleton /> : typeof value === "number" ? fmtCompact(value) : "—"}
             </b>
           </article>
         ))}
       </div>
-      <article className="card">
+      <article className="card history-card">
         <div className="filters">
           <label className="search">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
             <input
               aria-label="Tìm request"
               placeholder="Tìm agent, model, IP, mã lỗi…"

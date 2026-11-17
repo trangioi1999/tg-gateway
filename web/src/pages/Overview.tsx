@@ -199,7 +199,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
           </div>
         </div>
       )}
-      <article className="card">
+      <article className="card recent-card">
         <div className="head">
           <div>
             <h2>Request gần đây</h2>

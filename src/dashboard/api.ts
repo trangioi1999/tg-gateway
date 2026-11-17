@@ -108,7 +108,7 @@ export function requests(gw: Gateway, url: URL) {
   const page = Number(url.searchParams.get("page") ?? 1);
   if (!Number.isInteger(page) || page < 1 || page > 10000)
     throw new HttpError(400, "invalid_page", "Invalid page.");
-  const pageSize = Number(url.searchParams.get("pageSize") ?? 25);
+  const pageSize = Number(url.searchParams.get("pageSize") ?? 10);
   if (![10, 25, 50, 100].includes(pageSize))
     throw new HttpError(400, "invalid_page", "Invalid page size.");
   const { clause, args, range, provider } = filter(url);
