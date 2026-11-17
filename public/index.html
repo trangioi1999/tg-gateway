@@ -263,7 +263,7 @@
               <div class="panel-heading">
                 <div>
                   <h2>Nhật ký gateway</h2>
-                  <p>Chỉ lưu metadata. Không lưu prompt hay câu trả lời.</p>
+                  <p>Chỉ lưu metadata. Không lưu prompt hay câu trả lời (trừ bản tóm tắt khi bật Compact).</p>
                 </div>
                 <div class="heading-actions">
                   <button id="clear-history" class="secondary danger" type="button">Xóa lịch sử</button
@@ -376,12 +376,15 @@
                       </label>
                       <div class="two-fields">
                         <label
-                          >Timeout (giây)<input
+                          >Timeout khi im lặng (giây)<input
                             name="timeoutSeconds"
                             type="number"
                             min="10"
                             max="600"
-                            required /></label
+                            required /><span class="field-help"
+                            >Chỉ cắt khi upstream không gửi gì trong N giây; câu trả lời dài
+                            đang chạy không bị cắt (trần 30 phút).</span
+                          ></label
                         ><label
                           >Lưu lịch sử (ngày)<input
                             name="retentionDays"
@@ -395,6 +398,94 @@
                         Dữ liệu cũ được xóa mỗi giờ theo thời hạn lưu. Giảm thời
                         hạn có thể làm mất lịch sử tháng.
                       </p>
+                    </div>
+                  </article>
+                  <article class="panel">
+                    <div class="panel-heading">
+                      <div>
+                        <h2>Tiết kiệm credit</h2>
+                        <p>Chỉ áp dụng cho đường Kiro. Request max_tokens = 1 luôn được trả lời tại chỗ.</p>
+                      </div>
+                    </div>
+                    <div class="form-body">
+                      <label class="toggle-row"
+                        ><span
+                          ><strong>Xóa tool result cũ</strong
+                          ><small
+                            >Khi prompt vượt ngưỡng, thay output tool cũ (nội dung file, log lệnh)
+                            bằng một dòng ghi chú trước khi gửi Kiro.</small
+                          ></span
+                        ><input name="clearToolResults" type="checkbox" role="switch"
+                      /></label>
+                      <div class="two-fields">
+                        <label
+                          >Ngưỡng xóa (token)<input
+                            name="clearTriggerTokens"
+                            type="number"
+                            min="1000"
+                            max="2000000"
+                            required /></label
+                        ><label
+                          >Giữ N lần gọi tool gần nhất<input
+                            name="clearKeepToolUses"
+                            type="number"
+                            min="0"
+                            max="100"
+                            required
+                        /></label>
+                      </div>
+                      <label class="toggle-row"
+                        ><span
+                          ><strong>Rút gọn cả tham số tool cũ</strong
+                          ><small
+                            >Chuỗi dài hơn 300 ký tự trong tham số tool cũ (ví dụ nội dung file khi
+                            Write) được thay bằng ghi chú.</small
+                          ></span
+                        ><input name="clearToolInputs" type="checkbox" role="switch"
+                      /></label>
+                      <label class="toggle-row"
+                        ><span
+                          ><strong>Compact hội thoại dài</strong
+                          ><small
+                            >Tóm tắt phần đầu hội thoại bằng model rẻ, lưu bản tóm tắt (nội dung hội
+                            thoại) tối đa 7 ngày để dùng lại. Tắt sẽ xóa mọi bản tóm tắt.</small
+                          ></span
+                        ><input name="compactEnabled" type="checkbox" role="switch"
+                      /></label>
+                      <div class="two-fields">
+                        <label
+                          >Ngưỡng compact (token)<input
+                            name="compactTriggerTokens"
+                            type="number"
+                            min="10000"
+                            max="2000000"
+                            required /></label
+                        ><label
+                          >Giữ nguyên phần cuối (token)<input
+                            name="compactKeepTokens"
+                            type="number"
+                            min="1000"
+                            max="1000000"
+                            required
+                        /></label>
+                      </div>
+                      <div class="two-fields">
+                        <label
+                          >Model tóm tắt (Kiro)<input
+                            name="compactModel"
+                            required
+                            placeholder="claude-haiku-4.5" /></label
+                        ><label
+                          >Cache câu trả lời (giây)<input
+                            name="responseCacheSeconds"
+                            type="number"
+                            min="0"
+                            max="3600"
+                            required /><span class="field-help"
+                            >Request giống hệt được phát lại từ bộ nhớ, không tính credit. 0 = tắt.</span
+                          ></label
+                        >
+                      </div>
                     </div>
                   </article>
                   <article class="panel">

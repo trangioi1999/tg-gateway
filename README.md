@@ -11,10 +11,11 @@ Gateway TypeScript chạy trực tiếp trên **Cloudflare Workers**, có dashbo
 - Dashboard: tổng request, thành công/lỗi/đang chạy, token input/output, độ trễ, biểu đồ UTC, thống kê model, lịch sử phân trang, lọc, CSV.
 - Hai cột credit độc lập: **credit quy đổi nội bộ** và **credit Kiro trả về**.
 - Settings: bật/tắt gateway, model allowlist, API region, rate limit, timeout, retention, tỷ lệ token/credit, mục tiêu ngân sách tháng.
+- Tiết kiệm credit Kiro: xóa tool result cũ, compact hội thoại dài, cache request trùng, trả lời tại chỗ request `max_tokens: 1`, timeout theo thời gian im lặng (xem [Tiết kiệm credit Kiro](#tiết-kiệm-credit-kiro)).
 - Secrets chỉ nằm ở Cloudflare; dashboard không đọc hoặc trả giá trị bí mật. Token refresh xoay vòng được mã hóa AES-GCM trước khi lưu.
 - Cookie đăng nhập HttpOnly + SameSite=Strict (+ Secure khi HTTPS), CSRF origin check, giới hạn đăng nhập, CSP, API key riêng.
 - Nhận diện agent gọi tới (Claude Code, Claude Code trong IDE, Cursor, Cline, Roo Code, Kilo Code, Continue, opencode, Aider, Anthropic/OpenAI SDK, curl) từ User-Agent, hiển thị thống kê kèm logo agent và logo model (Claude, DeepSeek, Qwen, Gemini, OpenAI, OpenRouter; logo từ LobeHub icons, xem `NOTICE`). Header do client tự khai nên chỉ dùng để thống kê, không dùng cho xác thực.
-- Không lưu nội dung prompt/câu trả lời. Chỉ lưu metadata request. Worker observability tắt mặc định để tránh log không cần thiết.
+- Không lưu nội dung prompt/câu trả lời. Chỉ lưu metadata request (ngoại lệ: bản tóm tắt khi bật Compact, xem bên dưới). Worker observability tắt mặc định để tránh log không cần thiết.
 
 ## Chạy local
 
@@ -153,7 +154,42 @@ claude -p "chào"
 
 Sau đó mở dashboard → Lịch sử request: dòng mới có icon Claude Code và tên đường đi (Kiro/Anthropic/OpenRouter/deploy.com).
 
-Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5` khi đi Kiro. Đường Kiro nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (header `x-gateway-ignored-params`); không gửi được ảnh/PDF và tối đa 64 tool. Đường `anthropic/` không có các giới hạn này vì request được chuyển tiếp nguyên văn.
+Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5` khi đi Kiro. Đường Kiro nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (header `x-gateway-ignored-params`); không gửi được ảnh/PDF và tối đa 256 tool. Đường `anthropic/` không có các giới hạn này vì request được chuyển tiếp nguyên văn.
+
+## Tiết kiệm credit Kiro
+
+Mỗi lượt Claude Code gửi lại toàn bộ hội thoại, gồm system prompt, danh sách tool và mọi tool
+result. Kiro không có prompt caching nên phần lặp lại bị tính tiền ở mọi lượt. Các cơ chế dưới
+đây chỉ áp dụng cho đường Kiro, chỉnh trong **Cài đặt → Tiết kiệm credit**. Lịch sử request
+ghi rõ cơ chế nào đã chạy và số token tiết kiệm (ước tính); trang Tổng quan cộng tổng.
+
+| Cơ chế | Mặc định | Hoạt động |
+| --- | --- | --- |
+| Timeout khi im lặng | 180 s | Chỉ cắt khi upstream không gửi byte nào trong N giây, trần 30 phút. Trước đây timeout tính trên tổng thời gian, nên câu trả lời dài bị cắt, client gửi lại và Kiro tính tiền lại. |
+| Không retry sau khi đã tính tiền | luôn bật | Kiro đã trả lời mà gateway vẫn lỗi (ví dụ tham số tool hỏng): gắn `x-should-retry: false` để SDK Anthropic/OpenAI không gửi lại. |
+| Trả lời tại chỗ `max_tokens: 1` | luôn bật | Request dò quota của Claude Code không tới Kiro (Kiro bỏ qua `max_tokens`, nên sẽ trả lời đầy đủ). |
+| Xóa tool result cũ | bật, ngưỡng 60k token, giữ 4 | Khi prompt vượt ngưỡng, output của các lần gọi tool cũ được thay bằng một dòng ghi chú. Cặp gọi/kết quả tool và tin nhắn hiện tại giữ nguyên. Tùy chọn rút gọn cả tham số tool cũ. Lịch sử phía client không đổi. |
+| Compact | **tắt** | Khi prompt vẫn vượt 120k token, tóm tắt phần đầu bằng `compactModel` (mặc định `claude-haiku-4.5`), giữ nguyên ~30k token cuối. Bản tóm tắt được dùng lại cho các lượt sau, chỉ tóm tắt thêm khi cần. Mỗi lần tóm tắt hiện thành một dòng `internal:compact` trong lịch sử. |
+| Cache câu trả lời | 300 s | Request giống hệt từng byte được phát lại từ bộ nhớ (header `x-gateway-cache: hit`, 0 credit). Request giống hệt đang chạy song song chỉ gọi Kiro một lần. |
+
+Riêng tư: cache câu trả lời chỉ nằm trong bộ nhớ Durable Object (tối đa 32 mục, mất khi khởi
+động lại). Compact lưu **bản tóm tắt nội dung hội thoại** trong SQLite của Durable Object, xóa
+sau min(retention, 7) ngày và xóa hết khi tắt compact. Vì vậy compact mặc định tắt.
+
+Gợi ý thêm cho Claude Code (`~/.claude/settings.json` → `env`):
+
+```json
+{
+  "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+  "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-4.5",
+  "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+}
+```
+
+- `DISABLE_NON_ESSENTIAL_MODEL_CALLS`: bỏ các request phụ không cần thiết.
+- `CLAUDE_CODE_SUBAGENT_MODEL`: subagent dùng Haiku (phải có trong allowlist).
+- `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`: Claude Code tự compact sớm hơn (phần trăm cửa sổ ngữ cảnh).
+- Tắt MCP server không dùng (mỗi server thêm tool vào mọi request); dùng `/clear` khi đổi việc.
 
 ### Quản trị từ máy khác
 

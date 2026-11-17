@@ -895,6 +895,9 @@ td {
   font-size: 11px;
   color: var(--c60);
 }
+td small.saving {
+  color: var(--c13);
+}
 td small {
   display: block;
   font-size: 9px;

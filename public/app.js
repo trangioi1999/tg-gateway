@@ -33,8 +33,26 @@ const CLIENTS = {
   "anthropic-sdk": { label: "Anthropic SDK", brand: "anthropic" },
   "openai-sdk": { label: "OpenAI SDK", brand: "openai" },
   curl: { label: "curl", glyph: "$" },
+  "tg-gateway": { label: "Gateway (compact)", glyph: "TG" },
   other: { label: "Khác", glyph: "?" },
 };
+/** Ledger `optimizations` → short Vietnamese label. */
+function savings(r) {
+  if (!r.optimizations) return "";
+  const parts = r.optimizations.split(",").map((o) => {
+    if (o.startsWith("cleared:")) return `Xóa ${o.slice(8)} tool result`;
+    return (
+      {
+        local_reply: "Trả lời tại chỗ",
+        cache_hit: "Cache",
+        compact: "Compact",
+        compact_new: "Compact (tóm tắt mới)",
+      }[o] ?? o
+    );
+  });
+  const saved = r.saved_tokens ? ` · −${number(r.saved_tokens)} token` : "";
+  return `<small class="saving">${esc(parts.join(" · ") + saved)}</small>`;
+}
 const agent = (id) => CLIENTS[id] ?? CLIENTS.other;
 function agentBadge(id, size = "") {
   const a = agent(id);
@@ -133,7 +151,8 @@ async function loadOverview() {
     `${number(t.successful)} thành công · ${number(t.failed)} lỗi · ${number(t.active)} đang xử lý`;
   $("metric-tokens").textContent = number(t.input_tokens + t.output_tokens);
   $("metric-token-source").textContent =
-    `${number(t.input_tokens)} input / ${number(t.output_tokens)} output · ${number(t.estimated_token_requests)} request ước tính`;
+    `${number(t.input_tokens)} input / ${number(t.output_tokens)} output · ${number(t.estimated_token_requests)} request ước tính` +
+    (t.saved_tokens ? ` · tiết kiệm ${number(t.saved_tokens)} token` : "");
   $("metric-estimated").textContent = number(t.estimated_credits, 5);
   $("metric-reported").textContent =
     t.reported_credits === null ? "—" : number(t.reported_credits, 5);
@@ -289,7 +308,7 @@ async function loadRequests() {
     ? data.items
         .map(
           (r) =>
-            `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span title="${esc(r.id)}">${esc(agent(r.client).label)}</span><small>${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td data-label="Model">${modelMark(r.model)}${esc(r.model || "—")}<small>${esc(PROVIDER_LABELS[r.provider] ?? "Kiro")} · ${r.streamed ? "Streaming" : "JSON"} · ${r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td data-label="Trạng thái"><span class="status ${r.status === 0 ? "pending" : r.status >= 400 ? "error-status" : ""}">${r.status === 0 ? "Đang xử lý" : r.status}</span>${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td data-label="Input / output">${number(r.input_tokens)} / ${number(r.output_tokens)}<small>${r.input_source === "reported" ? "Input báo cáo" : r.input_source === "estimated" ? "Input ước tính" : "Input chưa có"} · ${r.output_source === "reported" ? "output báo cáo" : r.output_source === "estimated" ? "output ước tính" : "output chưa có"}</small></td><td data-label="Quy đổi / Kiro">${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}<small>${r.cost_usd == null ? "credit" : "credit · $" + number(r.cost_usd, 6)}</small></td><td data-label="Độ trễ">${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`,
+            `<tr><td><div class="who">${agentBadge(r.client, "sm")}<div><span title="${esc(r.id)}">${esc(agent(r.client).label)}</span><small>${esc(new Date(r.started).toLocaleString("vi-VN"))}</small></div></div></td><td data-label="Model">${modelMark(r.model)}${esc(r.model || "—")}<small>${esc(PROVIDER_LABELS[r.provider] ?? "Kiro")} · ${r.streamed ? "Streaming" : "JSON"} · ${r.endpoint.startsWith("internal:") ? "Nội bộ" : r.endpoint.includes("messages") ? "Anthropic" : "OpenAI"}</small></td><td data-label="Trạng thái"><span class="status ${r.status === 0 ? "pending" : r.status >= 400 ? "error-status" : ""}">${r.status === 0 ? "Đang xử lý" : r.status}</span>${r.error_code ? `<small>${esc(r.error_code)}</small>` : ""}</td><td data-label="Input / output">${number(r.input_tokens)} / ${number(r.output_tokens)}<small>${r.input_source === "reported" ? "Input báo cáo" : r.input_source === "estimated" ? "Input ước tính" : "Input chưa có"} · ${r.output_source === "reported" ? "output báo cáo" : r.output_source === "estimated" ? "output ước tính" : "output chưa có"}</small>${savings(r)}</td><td data-label="Quy đổi / Kiro">${number(r.estimated_credits, 5)} / ${r.reported_credits === null ? "—" : number(r.reported_credits, 5)}<small>${r.cost_usd == null ? "credit" : "credit · $" + number(r.cost_usd, 6)}</small></td><td data-label="Độ trễ">${r.status === 0 ? "—" : number(r.latency / 1000, 2) + " s"}</td></tr>`,
         )
         .join("")
     : `<tr><td colspan="6">${empty("Chưa có request phù hợp", "Thử thay đổi khoảng thời gian hoặc bộ lọc.")}</td></tr>`;
@@ -303,7 +322,7 @@ async function loadSettings(fillForm = true) {
     for (const [key, value] of Object.entries(settings)) {
       const input = form.elements.namedItem(key);
       if (!input) continue;
-      if (key === "enabled") input.checked = value;
+      if (typeof value === "boolean") input.checked = value;
       else input.value = key === "models" ? value.join("\n") : value;
     }
   loadKiro().catch(() => {});
@@ -397,14 +416,14 @@ $("settings-form").addEventListener("submit", async (event) => {
     next = { ...settings };
   for (const key of Object.keys(next))
     next[key] =
-      key === "enabled"
+      typeof settings[key] === "boolean"
         ? data.has(key)
         : key === "models"
           ? String(data.get(key))
               .split("\n")
               .map((s) => s.trim())
               .filter(Boolean)
-          : key === "apiRegion" || key === "kiroVersion"
+          : typeof settings[key] === "string"
             ? String(data.get(key)).trim()
             : Number(data.get(key));
   event.submitter.disabled = true;

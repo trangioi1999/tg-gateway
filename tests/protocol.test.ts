@@ -330,3 +330,36 @@ test("accepts Claude Code sized tool lists and moves long descriptions to the sy
     /At most 256 tools/,
   );
 });
+
+test("max_tokens is exposed and a max_tokens stop is reported in both dialects", async () => {
+  const p = prepare(
+    { model: defaults.models[0], max_tokens: 1, messages: [{ role: "user", content: "quota" }] },
+    "anthropic",
+    defaults,
+  );
+  assert.equal(p.maxTokens, 1);
+  const c = new Completion(5);
+  c.stopReason = "max_tokens";
+  assert.equal((new Formatter("anthropic", "id", "m").json(c) as any).stop_reason, "max_tokens");
+  assert.match(new Formatter("anthropic", "id", "m").finish(c, false), /"stop_reason":"max_tokens"/);
+  assert.equal((new Formatter("openai", "id", "m").json(c) as any).choices[0].finish_reason, "length");
+});
+
+test("consume reports every upstream chunk (idle timeout heartbeat)", async () => {
+  const frames = [
+    frame("assistantResponseEvent", { content: "a" }),
+    frame("assistantResponseEvent", { content: "b" }),
+    frame("meteringEvent", { usage: 0.01 }),
+  ];
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        frames.forEach((f) => controller.enqueue(f));
+        controller.close();
+      },
+    }),
+  );
+  let chunks = 0;
+  await consume(response, prepare(request, "openai", defaults), new Completion(1), undefined, () => chunks++);
+  assert.equal(chunks, 3);
+});

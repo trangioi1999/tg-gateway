@@ -14,10 +14,30 @@ import {
   readJson,
   digest,
 } from "./security.ts";
-import { prepare, Completion, credits, object } from "./protocol.ts";
+import {
+  prepare,
+  rebuild,
+  buildPayload,
+  modelId,
+  estimateTokens,
+  Completion,
+  credits,
+  object,
+  type Prepared,
+} from "./protocol.ts";
+import {
+  clearToolResults,
+  conversationTokens,
+  prefixHashes,
+  chooseCut,
+  renderTranscript,
+  summaryRequest,
+  applySummary,
+} from "./context.ts";
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
+import { ResponseCache, responseKey, snapshot, restore } from "./cache.ts";
 import {
   AnthropicMeter,
   toAnthropic,
@@ -39,7 +59,14 @@ const json = (
     status,
     headers: { "Cache-Control": "no-store", ...headers },
   });
-function failure(error: unknown, id?: string, mode: ApiMode = "openai") {
+/** Hard cap per request; `timeoutSeconds` is an idle timeout (no upstream bytes). */
+const MAX_REQUEST_MS = 30 * 60_000;
+function failure(
+  error: unknown,
+  id?: string,
+  mode: ApiMode = "openai",
+  billed = false,
+) {
   const e =
     error instanceof HttpError
       ? error
@@ -55,12 +82,20 @@ function failure(error: unknown, id?: string, mode: ApiMode = "openai") {
       ...(id ? { request_id: id } : {}),
     },
     e.status,
-    id ? { "x-request-id": id } : {},
+    {
+      ...(id ? { "x-request-id": id } : {}),
+      // Upstream already charged for this answer: tell SDK clients not to resend it.
+      ...(billed ? { "x-should-retry": "false" } : {}),
+    },
   );
 }
 export class Gateway extends DurableObject<Env> {
   sql: SqlStorage;
   auth: KiroAuth;
+  /** In-flight summarizer calls by prefix hash (identical concurrent requests share one). */
+  summarizing = new Map<string, Promise<string>>();
+  /** Completed Kiro answers for identical resends (memory only). */
+  cache = new ResponseCache();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
@@ -94,6 +129,19 @@ export class Gateway extends DurableObject<Env> {
       );
     if (!columns.has("cost_usd"))
       this.sql.exec("ALTER TABLE requests ADD COLUMN cost_usd REAL");
+    if (!columns.has("optimizations"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN optimizations TEXT NOT NULL DEFAULT ''",
+      );
+    if (!columns.has("saved_tokens"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN saved_tokens INTEGER NOT NULL DEFAULT 0",
+      );
+    // Compaction summaries (conversation content): only written when compactEnabled is on,
+    // deleted when it is turned off and after min(retentionDays, 7) days.
+    this.sql.exec(
+      `CREATE TABLE IF NOT EXISTS summaries (hash TEXT PRIMARY KEY, entries INTEGER NOT NULL, summary TEXT NOT NULL, created INTEGER NOT NULL)`,
+    );
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL)`,
     );
@@ -137,6 +185,10 @@ export class Gateway extends DurableObject<Env> {
     this.sql.exec(
       "DELETE FROM requests WHERE started < ?",
       now - this.settings().retentionDays * 86400_000,
+    );
+    this.sql.exec(
+      "DELETE FROM summaries WHERE created < ?",
+      now - Math.min(this.settings().retentionDays, 7) * 86400_000,
     );
     this.sql.exec(
       "UPDATE requests SET status=598,error_code='interrupted_unknown',finished=?,latency=?-started WHERE status=0 AND started<?",
@@ -215,6 +267,7 @@ export class Gateway extends DurableObject<Env> {
             "UPDATE settings SET value=? WHERE id=1",
             JSON.stringify(s),
           );
+          if (!s.compactEnabled) this.sql.exec("DELETE FROM summaries");
           return json({ settings: s });
         }
         if (path === "/api/kiro" && request.method === "GET")
@@ -335,7 +388,8 @@ export class Gateway extends DurableObject<Env> {
       COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
       COALESCE(SUM(estimated_credits),0) estimated_credits,SUM(reported_credits) reported_credits,
       COUNT(reported_credits) reported_requests,COALESCE(SUM(input_source='estimated' OR output_source='estimated'),0) estimated_token_requests,
-      COALESCE(AVG(CASE WHEN finished IS NOT NULL THEN latency END),0) avg_latency`;
+      COALESCE(AVG(CASE WHEN finished IS NOT NULL THEN latency END),0) avg_latency,
+      COALESCE(SUM(saved_tokens),0) saved_tokens`;
     const totals = this.sql
       .exec(`SELECT ${aggregate} FROM requests WHERE started>=?`, since)
       .one();
@@ -489,23 +543,48 @@ export class Gateway extends DurableObject<Env> {
     let result: Completion | CompatUsage | undefined,
       recorded = false,
       sent = false;
+    // Credit-saving steps applied to this request (shown in the ledger).
+    const optimizations: string[] = [];
+    let savedTokens = 0,
+      free = false;
+    // Releases identical requests waiting on this one; caches the answer on success.
+    let settle: ((answer: ReturnType<typeof snapshot> | null) => void) | undefined;
     const abort = new AbortController();
-    const timer = setTimeout(
+    // Idle timeout: every upstream chunk resets it, so long but live answers are not cut
+    // off (a cut answer is retried by clients and charged again).
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const touch = () => {
+      clearTimeout(idle);
+      idle = setTimeout(
+        () => abort.abort(new Error("timeout")),
+        s.timeoutSeconds * 1000,
+      );
+    };
+    touch();
+    const cap = setTimeout(
       () => abort.abort(new Error("timeout")),
-      s.timeoutSeconds * 1000,
+      MAX_REQUEST_MS,
     );
     const cancel = () => abort.abort(new Error("client_disconnect"));
     request.signal.addEventListener("abort", cancel, { once: true });
     const finish = (status: number, code: string | null = null) => {
       if (recorded) return;
       recorded = true;
-      clearTimeout(timer);
+      clearTimeout(idle);
+      clearTimeout(cap);
       request.signal.removeEventListener("abort", cancel);
       result?.finalize();
+      settle?.(
+        status === 200 &&
+          (code === null || code === "no_completion_signal") &&
+          result instanceof Completion
+          ? snapshot(result)
+          : null,
+      );
       const input = sent ? (result?.inputTokens ?? 0) : 0,
         output = sent ? (result?.outputTokens ?? 0) : 0;
       this.sql.exec(
-        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=?,cost_usd=? WHERE id=?`,
+        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=?,cost_usd=?,optimizations=?,saved_tokens=? WHERE id=?`,
         Date.now(),
         status,
         Date.now() - started,
@@ -514,10 +593,12 @@ export class Gateway extends DurableObject<Env> {
         sent ? (result?.inputSource ?? "unknown") : "unknown",
         sent ? (result?.outputSource ?? "unknown") : "unknown",
         result?.reportedCredits ?? null,
-        credits(input, output, s),
+        free ? 0 : credits(input, output, s),
         code,
         result?.contextPercent ?? null,
         result instanceof CompatUsage ? result.costUsd : null,
+        optimizations.join(","),
+        savedTokens,
         id,
       );
     };
@@ -602,6 +683,7 @@ export class Gateway extends DurableObject<Env> {
         const decoder = new TextDecoder();
         const relay = new TransformStream<Uint8Array, Uint8Array>({
           transform(chunk, controller) {
+            touch();
             meter.observe(decoder.decode(chunk, { stream: true }));
             controller.enqueue(chunk);
           },
@@ -716,6 +798,7 @@ export class Gateway extends DurableObject<Env> {
             for (;;) {
               const { value, done } = await upstream.read();
               if (done) break;
+              touch();
               bytes += value.length;
               if (bytes > 16 * 1024 * 1024)
                 throw new HttpError(502, "output_limit", "Upstream output exceeded 16 MiB.");
@@ -757,57 +840,68 @@ export class Gateway extends DurableObject<Env> {
         Number(prepared.stream),
         id,
       );
-      const auth = await this.auth.get();
+      /** Answer without calling Kiro (local reply or cache hit); costs no credit. */
+      const replay = (answer: Completion, tag: string, header: Record<string, string>) => {
+        result = answer;
+        sent = true;
+        free = true;
+        optimizations.push(tag);
+        savedTokens += prepared.estimatedInput;
+        const formatter = new Formatter(mode, id, prepared.model);
+        const headers = { "x-request-id": id, "Cache-Control": "no-store", ...header };
+        finish(200);
+        if (!prepared.stream) return json(formatter.json(answer), 200, headers);
+        return new Response(
+          formatter.start(answer.inputTokens) +
+            (answer.text ? formatter.text(answer.text) : "") +
+            answer.tools.map((t) => formatter.tool(t)).join("") +
+            formatter.finish(answer, prepared.includeUsage),
+          { headers: { ...headers, "Content-Type": "text/event-stream; charset=utf-8" } },
+        );
+      };
+      if (prepared.maxTokens === 1) {
+        // Kiro has no output limit, so a 1-token probe (Claude Code's quota check) would be
+        // a full paid answer. Answer it here: empty text, stopped by max_tokens.
+        const local = new Completion(prepared.estimatedInput);
+        local.stopReason = "max_tokens";
+        local.outputSource = "reported";
+        return replay(local, "local_reply", { "x-gateway-local": "max_tokens_1" });
+      }
+      const original = prepared.conversation.turns;
+      if (s.clearToolResults) {
+        const trimmed = clearToolResults(prepared.conversation, {
+          triggerTokens: s.clearTriggerTokens,
+          keepToolUses: s.clearKeepToolUses,
+          clearInputs: s.clearToolInputs,
+        });
+        if (trimmed.savedTokens) {
+          prepared.conversation.turns = trimmed.turns;
+          rebuild(prepared);
+          optimizations.push(`cleared:${trimmed.cleared}`);
+          savedTokens += trimmed.savedTokens;
+        }
+      }
+      if (s.compactEnabled) {
+        const compacted = await this.compact(prepared, original, s, abort.signal, touch);
+        if (compacted.savedTokens) {
+          optimizations.push(compacted.summarized ? "compact_new" : "compact");
+          savedTokens += compacted.savedTokens;
+        }
+      }
+      if (s.responseCacheSeconds) {
+        // Identical resend (retry after a dropped stream, duplicate background call): replay
+        // the stored answer, or wait for the identical request that is still running.
+        const key = await responseKey(prepared.payload);
+        const hit = this.cache.get(key) ?? (await this.cache.wait(key));
+        if (hit) return replay(restore(hit), "cache_hit", { "x-gateway-cache": "hit" });
+        settle = this.cache.begin(key, s.responseCacheSeconds * 1000);
+      }
       const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
       if (profileArn) prepared.payload.profileArn = profileArn;
       if (abort.signal.aborted)
         throw new HttpError(504, "timeout", "Request timed out.");
       result = new Completion(prepared.estimatedInput);
-      const call = (token: string) =>
-        fetch(
-          // runtime.<region>.kiro.dev answers Workers with Cloudflare error 1016 (530); use the AWS host.
-          `https://q.${s.apiRegion}.amazonaws.com/generateAssistantResponse`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/x-amz-json-1.0",
-              "x-amz-target":
-                "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
-              Accept: "application/vnd.amazon.eventstream",
-              "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.26100 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
-              "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
-              "x-amzn-codewhisperer-optout": "true",
-              "x-amzn-kiro-agent-mode": "vibe",
-              "amz-sdk-invocation-id": crypto.randomUUID(),
-              "amz-sdk-request": "attempt=1; max=1",
-            },
-            body: JSON.stringify(prepared.payload),
-            signal: abort.signal,
-          },
-        );
-      let response = await call(auth.accessToken!);
-      // Retry only an explicit authentication rejection, never a generated/partially streamed request.
-      if (response.status === 401 || response.status === 403) {
-        await response.body?.cancel();
-        response = await call(
-          (await this.auth.get(auth.accessToken)).accessToken!,
-        );
-      }
-      if (!response.ok) {
-        const status = response.status;
-        const { reason, raw } = await upstreamReason(response);
-        // Only visible to the account owner in `wrangler tail`.
-        console.warn(`kiro_http_${status}: ${reason || raw}`);
-        throw new HttpError(
-          [400, 402, 429].includes(status) ? status : 502,
-          "kiro_http_" + status,
-          // Clients get only the structured AWS error type/message, never the raw body.
-          status === 530
-            ? `No Kiro API endpoint in region "${s.apiRegion}". Set API region to us-east-1 (or eu-central-1) in Settings.`
-            : `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
-        );
-      }
+      const response = await this.kiro(prepared.payload, s, abort.signal);
       sent = true;
       const formatter = new Formatter(mode, id, prepared.model);
       const headers = {
@@ -822,7 +916,7 @@ export class Gateway extends DurableObject<Env> {
       const unsignalled = (c: Completion) =>
         c.terminal ? null : "no_completion_signal";
       if (!prepared.stream) {
-        await consume(response, prepared, result);
+        await consume(response, prepared, result, undefined, touch);
         finish(200, unsignalled(result));
         return json(formatter.json(result), 200, headers);
       }
@@ -842,7 +936,7 @@ export class Gateway extends DurableObject<Env> {
           await consume(response, prepared, completion, async (delta) => {
             if (delta.text) await write(formatter.text(delta.text));
             if (delta.tool) await write(formatter.tool(delta.tool));
-          });
+          }, touch);
           finish(200, unsignalled(completion));
           await write(formatter.finish(completion, prepared.includeUsage));
         } catch (error) {
@@ -885,12 +979,202 @@ export class Gateway extends DurableObject<Env> {
             ),
         id,
         mode,
+        sent,
+      );
+    }
+  }
+  /** POST a payload to Kiro; retries once on an auth rejection. Throws on non-2xx. */
+  async kiro(payload: object, s: Settings, signal: AbortSignal): Promise<Response> {
+    const auth = await this.auth.get();
+    const call = (token: string) =>
+      fetch(
+        // runtime.<region>.kiro.dev answers Workers with Cloudflare error 1016 (530); use the AWS host.
+        `https://q.${s.apiRegion}.amazonaws.com/generateAssistantResponse`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/x-amz-json-1.0",
+            "x-amz-target":
+              "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+            Accept: "application/vnd.amazon.eventstream",
+            "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.26100 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
+            "x-amz-user-agent": `aws-sdk-js/1.0.27 KiroIDE-${s.kiroVersion}-${this.ctx.id.toString()}`,
+            "x-amzn-codewhisperer-optout": "true",
+            "x-amzn-kiro-agent-mode": "vibe",
+            "amz-sdk-invocation-id": crypto.randomUUID(),
+            "amz-sdk-request": "attempt=1; max=1",
+          },
+          body: JSON.stringify(payload),
+          signal,
+        },
+      );
+    let response = await call(auth.accessToken!);
+    // Retry only an explicit authentication rejection, never a generated/partially streamed request.
+    if (response.status === 401 || response.status === 403) {
+      await response.body?.cancel();
+      response = await call((await this.auth.get(auth.accessToken)).accessToken!);
+    }
+    if (!response.ok) throw await kiroError(response, s.apiRegion);
+    return response;
+  }
+  /**
+   * Gateway-side compaction. Reuses the longest stored summary matching the conversation's
+   * start; when the prompt is still above compactTriggerTokens, summarizes further with
+   * compactModel and stores the result. Summarizer failures leave the request uncompacted.
+   */
+  async compact(
+    prepared: Prepared,
+    original: Record<string, any>[],
+    s: Settings,
+    signal: AbortSignal,
+    touch: () => void,
+  ): Promise<{ savedTokens: number; summarized: boolean }> {
+    const c = prepared.conversation;
+    const before = conversationTokens(c);
+    const cleared = c.turns;
+    const hashes = await prefixHashes(original);
+    let base = 0,
+      summary = "";
+    for (let i = 0; i < hashes.length - 1; i += 90) {
+      const chunk = hashes.slice(i, Math.min(i + 90, hashes.length - 1));
+      const row = this.sql
+        .exec<{ entries: number; summary: string }>(
+          `SELECT entries, summary FROM summaries WHERE hash IN (${chunk.map(() => "?").join(",")}) ORDER BY entries DESC LIMIT 1`,
+          ...chunk,
+        )
+        .toArray()[0];
+      if (row && row.entries > base && cleared[row.entries]?.userInputMessage) {
+        base = row.entries;
+        summary = row.summary;
+      }
+    }
+    const apply = (cut: number, text: string) => ({
+      ...c,
+      turns: applySummary(cleared, cut, text),
+    });
+    let next = base ? apply(base, summary) : c;
+    let summarized = false;
+    if (conversationTokens(next) > s.compactTriggerTokens) {
+      const cut = chooseCut(cleared, s.compactKeepTokens, base);
+      if (cut > base) {
+        const key = hashes[cut - 1];
+        try {
+          let pending = this.summarizing.get(key);
+          if (!pending) {
+            pending = this.summarize(
+              renderTranscript(original.slice(base, cut), summary),
+              s,
+              signal,
+              touch,
+            ).finally(() => this.summarizing.delete(key));
+            this.summarizing.set(key, pending);
+          }
+          const text = await pending;
+          this.sql.exec(
+            "INSERT OR REPLACE INTO summaries VALUES(?,?,?,?)",
+            key,
+            cut,
+            text,
+            Date.now(),
+          );
+          next = apply(cut, text);
+          summarized = true;
+        } catch (error) {
+          if (signal.aborted) throw error;
+          console.warn(`compact: ${(error as Error).message}`);
+        }
+      }
+    }
+    if (next === c) return { savedTokens: 0, summarized: false };
+    prepared.conversation = next;
+    rebuild(prepared);
+    return { savedTokens: Math.max(0, before - conversationTokens(next)), summarized };
+  }
+  /** One non-streaming Kiro call that returns a summary; logged as its own ledger row. */
+  async summarize(
+    transcript: string,
+    s: Settings,
+    signal: AbortSignal,
+    touch: () => void,
+  ): Promise<string> {
+    const id = "msg_" + crypto.randomUUID(),
+      started = Date.now(),
+      model = modelId(s.compactModel);
+    const payload: Record<string, any> = buildPayload({
+      id: crypto.randomUUID(),
+      system: "",
+      turns: [
+        {
+          userInputMessage: {
+            content: summaryRequest(transcript),
+            modelId: model,
+            origin: "AI_EDITOR",
+          },
+        },
+      ],
+      tools: [],
+    });
+    const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
+    if (profileArn) payload.profileArn = profileArn;
+    const result = new Completion(estimateTokens(JSON.stringify(payload)));
+    this.sql.exec(
+      "INSERT INTO requests(id,started,endpoint,model,input_rate,output_rate,client) VALUES(?,?,?,?,?,?,?)",
+      id,
+      started,
+      "internal:compact",
+      model,
+      s.inputCreditsPerMillion,
+      s.outputCreditsPerMillion,
+      "tg-gateway",
+    );
+    let status = 200,
+      code: string | null = null;
+    try {
+      const response = await this.kiro(payload, s, signal);
+      await consume(response, undefined, result, undefined, touch);
+      const text = result.text.trim();
+      if (!text) throw new HttpError(502, "empty_summary", "Kiro returned an empty summary.");
+      return text;
+    } catch (error) {
+      status = error instanceof HttpError ? error.status : 502;
+      code = error instanceof HttpError ? error.code : "summary_failed";
+      throw error;
+    } finally {
+      result.finalize();
+      this.sql.exec(
+        "UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=? WHERE id=?",
+        Date.now(),
+        status,
+        Date.now() - started,
+        result.inputTokens,
+        result.outputTokens,
+        result.inputSource,
+        result.outputSource,
+        result.reportedCredits,
+        credits(result.inputTokens, result.outputTokens, s),
+        code,
+        id,
       );
     }
   }
 }
 
 /** Structured AWS error (`__type`/`message`) from an upstream body, plus a raw excerpt for logs. */
+async function kiroError(response: Response, region: string): Promise<HttpError> {
+  const status = response.status;
+  const { reason, raw } = await upstreamReason(response);
+  // Only visible to the account owner in `wrangler tail`.
+  console.warn(`kiro_http_${status}: ${reason || raw}`);
+  return new HttpError(
+    [400, 402, 429].includes(status) ? status : 502,
+    "kiro_http_" + status,
+    // Clients get only the structured AWS error type/message, never the raw body.
+    status === 530
+      ? `No Kiro API endpoint in region "${region}". Set API region to us-east-1 (or eu-central-1) in Settings.`
+      : `Kiro returned HTTP ${status}${reason ? ": " + reason : "."}`,
+  );
+}
 async function upstreamReason(response: Response): Promise<{ reason: string; raw: string }> {
   let text = "";
   try {

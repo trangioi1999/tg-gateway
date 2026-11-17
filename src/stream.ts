@@ -6,6 +6,10 @@ import {
 } from "./protocol.ts";
 import { HttpError } from "./types.ts";
 export type ApiMode = "openai" | "anthropic";
+const anthropicStop = (r: Completion) =>
+  r.stopReason ?? (r.tools.length ? "tool_use" : "end_turn");
+const openaiFinish = (r: Completion) =>
+  r.stopReason === "max_tokens" ? "length" : r.tools.length ? "tool_calls" : "stop";
 export class Formatter {
   mode: ApiMode;
   id: string;
@@ -109,7 +113,7 @@ export class Formatter {
   finish(result: Completion, includeUsage: boolean) {
     if (this.mode === "openai")
       return (
-        this.chunk({}, result.tools.length ? "tool_calls" : "stop") +
+        this.chunk({}, openaiFinish(result)) +
         (includeUsage
           ? `data: ${JSON.stringify({ id: this.id, object: "chat.completion.chunk", created: this.created, model: this.model, choices: [], usage: result.usage() })}\n\n`
           : "") +
@@ -120,7 +124,7 @@ export class Formatter {
       this.event("message_delta", {
         type: "message_delta",
         delta: {
-          stop_reason: result.tools.length ? "tool_use" : "end_turn",
+          stop_reason: anthropicStop(result),
           stop_sequence: null,
         },
         usage: {
@@ -162,7 +166,7 @@ export class Formatter {
                   }
                 : {}),
             },
-            finish_reason: result.tools.length ? "tool_calls" : "stop",
+            finish_reason: openaiFinish(result),
           },
         ],
         usage: result.usage(),
@@ -181,7 +185,7 @@ export class Formatter {
           input: JSON.parse(t.arguments),
         })),
       ],
-      stop_reason: result.tools.length ? "tool_use" : "end_turn",
+      stop_reason: anthropicStop(result),
       stop_sequence: null,
       usage: {
         input_tokens: result.inputTokens,
@@ -192,9 +196,11 @@ export class Formatter {
 }
 export async function consume(
   response: Response,
-  prepared: Prepared,
+  _prepared: Prepared | undefined,
   result: Completion,
   emit?: (event: { text?: string; tool?: ToolCall }) => Promise<void>,
+  /** Called for every upstream chunk (keeps the idle timeout alive). */
+  onChunk?: () => void,
 ) {
   if (!response.body)
     throw new HttpError(
@@ -209,6 +215,7 @@ export async function consume(
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      onChunk?.();
       bytes += value.length;
       if (bytes > 16 * 1024 * 1024)
         throw new HttpError(

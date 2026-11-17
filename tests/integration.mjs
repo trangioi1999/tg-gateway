@@ -50,8 +50,8 @@ const anthropicSse = [
   .join("");
 const native = `if(new URL(request.url).hostname==='api.anthropic.com'){if(request.headers.get('x-api-key')!=='sk-ant-test')return Response.json({type:'error',error:{type:'authentication_error',message:'bad key'}},{status:401});if(request.headers.get('anthropic-beta')!=='claude-code-20250219')return Response.json({type:'error',error:{type:'invalid_request_error',message:'beta not forwarded'}},{status:400});const body=await request.json();if(body.model!=='claude-sonnet-5-5')return Response.json({type:'error',error:{type:'invalid_request_error',message:'prefix leaked'}},{status:400});if(body.messages[0].content==='overloaded')return Response.json({type:'error',error:{type:'overloaded_error',message:'Overloaded'}},{status:529,headers:{'retry-after':'7'}});return new Response(${JSON.stringify(anthropicSse)},{headers:{'Content-Type':'text/event-stream'}});}`;
 const upstream = `export default {async fetch(request){${native}${compat}const payload=await request.json();const text=payload.conversationState.currentMessage.userInputMessage.content;if(text==='rate-limit')return new Response('private upstream body',{status:429});const bytes=new Uint8Array([...${JSON.stringify(content)},...(text==='truncated'?[]:${JSON.stringify(meter)})]);return new Response(bytes,{headers:{'Content-Type':'application/vnd.amazon.eventstream'}});}};`;
-test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors and CSV", async () => {
-  const mf = new Miniflare(
+function gateway(upstreamScript) {
+  return new Miniflare(
     convertV4MiniflareOptions({
       workers: [
         {
@@ -82,12 +82,15 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
         {
           name: "upstream",
           modules: true,
-          script: upstream,
+          script: upstreamScript,
           compatibilityDate: "2026-11-01",
         },
       ],
     }),
   );
+}
+test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors and CSV", async () => {
+  const mf = gateway(upstream);
   const base = "https://gateway.test";
   let cookie = "";
   const send = (path, options = {}) =>
@@ -121,7 +124,8 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
       ).status,
       403,
     );
-    s = { ...s, inputCreditsPerMillion: 100, outputCreditsPerMillion: 200 };
+    // Every request below must reach the fake Kiro; the response cache has its own test.
+    s = { ...s, inputCreditsPerMillion: 100, outputCreditsPerMillion: 200, responseCacheSeconds: 0 };
     assert.equal(
       (await send("/api/settings", { method: "PUT", body: JSON.stringify(s) }))
         .status,
@@ -349,6 +353,155 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     await send("/api/session", { method: "DELETE" });
     cookie = "";
     assert.equal((await send("/api/overview")).status, 401);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+// Fake Kiro that records every payload it receives (GET /calls on the same host lists them).
+const recording = `const calls=[];export default {async fetch(request){if(request.method==='GET')return Response.json(calls);const payload=await request.json();calls.push(payload);if(!payload.conversationState)return Response.json({profiles:[]});const text=payload.conversationState.currentMessage.userInputMessage.content;if(text.includes('slow')){const body=new ReadableStream({async start(c){for(let i=0;i<4;i++){c.enqueue(new Uint8Array(${JSON.stringify(frame("assistantResponseEvent", { content: "." }))}));await new Promise(r=>setTimeout(r,3000));}c.enqueue(new Uint8Array(${JSON.stringify(meter)}));c.close();}});return new Response(body);}if(text.includes('broken-tool'))return new Response(new Uint8Array(${JSON.stringify(frame("toolUseEvent", { name: "Bash", toolUseId: "t1", input: '{"command":', stop: true }))}));return new Response(new Uint8Array([...${JSON.stringify(content)},...${JSON.stringify(meter)}]));}};`;
+async function signedIn(mf) {
+  const base = "https://gateway.test";
+  const login = await mf.dispatchFetch(base + "/api/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: base },
+    body: JSON.stringify({ password: "admin-test-password" }),
+  });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const send = (path, options = {}) =>
+    mf.dispatchFetch(base + path, {
+      ...options,
+      headers: { "Content-Type": "application/json", Origin: base, Cookie: cookie, Authorization: "Bearer gateway-test-key", ...options.headers },
+    });
+  const calls = async () => (await (await (await mf.getWorker("upstream")).fetch("https://q.us-east-1.amazonaws.com/calls")).json()).filter((p) => p.conversationState);
+  return { send, calls };
+}
+test("credit savers: local 1-token reply, idle timeout, no retry after billing, tool result clearing", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    let s = (await (await send("/api/settings")).json()).settings;
+    const put = (next) => send("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+    const message = (content, extra = {}) =>
+      send("/v1/messages", {
+        method: "POST",
+        body: JSON.stringify({ model: "claude-haiku-4.5", max_tokens: 4096, messages: [{ role: "user", content }], ...extra }),
+      });
+    // Claude Code's quota probe never reaches Kiro.
+    const probe = await message("quota", { max_tokens: 1 });
+    assert.equal(probe.status, 200);
+    assert.equal((await probe.json()).stop_reason, "max_tokens");
+    assert.equal((await calls()).length, 0);
+    // A 10s idle timeout does not cut a 12s answer that streams a chunk every 3s.
+    s = { ...s, timeoutSeconds: 10 };
+    assert.equal((await put(s)).status, 200);
+    const slow = await message("slow", { stream: true });
+    assert.match(await slow.text(), /message_stop/);
+    // Kiro answered (billed) but the tool JSON is broken: client must not resend.
+    const broken = await message("broken-tool");
+    assert.equal(broken.status, 502);
+    assert.equal(broken.headers.get("x-should-retry"), "false");
+    // Old tool output is replaced before it reaches Kiro once the prompt is large.
+    s = { ...s, clearTriggerTokens: 1000, clearKeepToolUses: 1 };
+    assert.equal((await put(s)).status, 200);
+    const tools = [{ name: "Read", input_schema: { type: "object", properties: {} } }];
+    const history = [{ role: "user", content: "read both" }];
+    for (const id of ["a", "b"])
+      history.push(
+        { role: "assistant", content: [{ type: "tool_use", id, name: "Read", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: id.repeat(6000) }] },
+      );
+    history.push({ role: "assistant", content: "Done reading." }, { role: "user", content: "now summarize" });
+    const trimmed = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-haiku-4.5", max_tokens: 100, tools, messages: history }),
+    });
+    assert.equal(trimmed.status, 200);
+    const sentHistory = JSON.stringify((await calls()).at(-1).conversationState.history);
+    assert.match(sentHistory, /Tool result cleared by gateway/);
+    assert.ok(!sentHistory.includes("a".repeat(6000)));
+    assert.ok(sentHistory.includes("b".repeat(6000)), "most recent tool result kept");
+    const rows = (await (await send("/api/requests?days=1")).json()).items;
+    const clearedRow = rows.find((r) => r.optimizations === "cleared:1");
+    assert.ok(clearedRow.saved_tokens > 1000);
+    const local = rows.find((r) => r.optimizations.includes("local_reply"));
+    assert.equal(local.estimated_credits, 0);
+    assert.equal(rows.find((r) => r.error_code === "invalid_tool_arguments").status, 502);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("compaction: summarize once, reuse for later turns, log the summarizer call", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    const put = (next) => send("/api/settings", { method: "PUT", body: JSON.stringify(next) });
+    assert.equal(
+      (await put({ ...s, clearToolResults: false, responseCacheSeconds: 0, compactEnabled: true, compactTriggerTokens: 10000, compactKeepTokens: 2000 })).status,
+      200,
+    );
+    const history = [];
+    for (let i = 0; i < 12; i++)
+      history.push({ role: "user", content: `step ${i} ` + "z".repeat(4000) }, { role: "assistant", content: `ok ${i}` });
+    const ask = (messages) =>
+      send("/v1/messages", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, messages }) });
+    const first = await ask([...history, { role: "user", content: "continue" }]);
+    assert.equal(first.status, 200);
+    let log = await calls();
+    const summarizer = log.filter((p) => p.conversationState.currentMessage.userInputMessage.content.startsWith("You are compacting"));
+    assert.equal(summarizer.length, 1);
+    assert.equal(summarizer[0].conversationState.currentMessage.userInputMessage.modelId, "claude-haiku-4.5");
+    const main = JSON.stringify(log.at(-1).conversationState);
+    assert.match(main, /Summary of the earlier conversation/);
+    assert.match(main, /Hello world/, "summary text from the summarizer");
+    assert.ok(!main.includes("step 0 "), "summarized turns are not resent");
+    // Next turn shares the start: stored summary reused, no new summarizer call.
+    const second = await ask([...history, { role: "user", content: "continue" }, { role: "assistant", content: "done" }, { role: "user", content: "thanks" }]);
+    assert.equal(second.status, 200);
+    log = await calls();
+    assert.equal(log.filter((p) => p.conversationState.currentMessage.userInputMessage.content.startsWith("You are compacting")).length, 1);
+    assert.match(JSON.stringify(log.at(-1).conversationState), /Summary of the earlier conversation/);
+    const rows = (await (await send("/api/requests?days=1")).json()).items;
+    assert.equal(rows.filter((r) => r.endpoint === "internal:compact" && r.status === 200).length, 1);
+    assert.ok(rows.some((r) => r.optimizations === "compact_new" && r.saved_tokens > 5000));
+    assert.ok(rows.some((r) => r.optimizations === "compact"));
+    // Turning compaction off deletes stored summaries: the next long request is sent whole.
+    await put({ ...s, clearToolResults: false, responseCacheSeconds: 0, compactEnabled: false });
+    await ask([...history, { role: "user", content: "again" }]);
+    assert.match(JSON.stringify((await calls()).at(-1).conversationState), /step 0 /);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("response cache: identical resend replays, concurrent duplicates share one call", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    const ask = (content, stream = false) =>
+      send("/v1/messages", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, stream, messages: [{ role: "user", content }] }) });
+    const first = await (await ask("cache me")).json();
+    const again = await ask("cache me", true);
+    assert.equal(again.headers.get("x-gateway-cache"), "hit");
+    const text = await again.text();
+    assert.match(text, /Hello world/);
+    assert.match(text, /message_stop/);
+    assert.equal(first.content[0].text, "Hello world");
+    assert.equal((await calls()).length, 1);
+    // Two identical slow requests at once: Kiro is called once.
+    const [a, b] = await Promise.all([ask("slow twin"), ask("slow twin")]);
+    assert.equal(a.status, 200);
+    assert.equal(b.status, 200);
+    assert.equal((await calls()).filter((p) => p.conversationState.currentMessage.userInputMessage.content === "slow twin").length, 1);
+    // A different request is not served from cache.
+    await ask("something else");
+    assert.equal((await calls()).length, 3);
+    const rows = (await (await send("/api/requests?days=1")).json()).items;
+    const hits = rows.filter((r) => r.optimizations === "cache_hit");
+    assert.equal(hits.length, 2);
+    assert.ok(hits.every((r) => r.estimated_credits === 0 && r.reported_credits === null));
   } finally {
     await mf.dispose();
   }
