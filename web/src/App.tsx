@@ -35,6 +35,10 @@ export default function App() {
       .finally(() => { if (!controller.signal.aborted) setReady(true); });
     return () => controller.abort();
   }, [revision]);
+  useEffect(() => {
+    document.title = `${path === "/requests" ? "Lịch sử" : path === "/settings" ? "Cài đặt" : path === "/login" ? "Đăng nhập" : "Tổng quan"} · TG Gateway`;
+  }, [path]);
+  const headerTools = <><ThemeToggle theme={theme} setTheme={setTheme} /><span className="avatar" aria-label="Tài khoản">TG</span></>;
   return (
     <div className="stage">
       <ProgressBar />
@@ -49,14 +53,14 @@ export default function App() {
         </>
       ) : (
         <div className="frame">
-          <Sidebar theme={theme} setTheme={setTheme} />
+          <Sidebar />
           <main className="main route-enter" key={path}>
             {path === "/overview" ? (
-              <Overview />
+              <Overview headerTools={headerTools} />
             ) : path === "/requests" ? (
-              <Requests />
+              <Requests headerTools={headerTools} />
             ) : (
-              <Settings />
+              <Settings headerTools={headerTools} />
             )}
           </main>
         </div>

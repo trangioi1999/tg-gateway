@@ -4,13 +4,11 @@ import Button from "./Button";
 export default function SaveBar({
   count,
   busy,
-  error,
   message,
   onSave,
 }: {
   count: number;
   busy: boolean;
-  error: string;
   message: ToastMessage;
   onSave: () => void;
 }) {
@@ -18,11 +16,6 @@ export default function SaveBar({
     <div className="savebar">
       <div>
         <span>Có {count} thay đổi chưa lưu</span>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
         <Toast message={message} />
       </div>
       <Button
