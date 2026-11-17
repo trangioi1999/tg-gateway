@@ -363,3 +363,55 @@ test("consume reports every upstream chunk (idle timeout heartbeat)", async () =
   await consume(response, prepare(request, "openai", defaults), new Completion(1), undefined, () => chunks++);
   assert.equal(chunks, 3);
 });
+
+import { kiroToolName } from "../src/protocol.ts";
+
+test("tool names Kiro rejects are renamed, deduplicated and mapped back", async () => {
+  const long = "mcp__plugin_marketplace_very_long_server_name__search_documents_by_query_text";
+  const dotted = "server.tool:v2";
+  assert.ok(long.length > 64);
+  const schema = { type: "object", properties: {} };
+  const p = prepare(
+    {
+      model: defaults.models[0],
+      tools: [
+        { name: "Bash", input_schema: schema },
+        { name: long, input_schema: schema },
+        { name: dotted, input_schema: schema },
+        { name: "Bash", description: "duplicate", input_schema: schema },
+      ],
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: long, input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+      ],
+    },
+    "anthropic",
+    defaults,
+  );
+  const sent = (p.payload as any).conversationState;
+  const specs = sent.currentMessage.userInputMessage.userInputMessageContext.tools.map(
+    (t: any) => t.toolSpecification.name,
+  );
+  assert.equal(specs.length, 3, "duplicate Bash dropped");
+  assert.ok(specs.every((n: string) => /^[\w-]{1,64}$/.test(n)));
+  assert.equal(specs[0], "Bash");
+  assert.equal(specs[1], kiroToolName(long));
+  assert.equal(kiroToolName(long), kiroToolName(long), "stable across turns");
+  assert.notEqual(kiroToolName(dotted), kiroToolName("server_tool_v2"), "no collision with a legal look-alike");
+  assert.equal(sent.history[1].assistantResponseMessage.toolUses[0].name, specs[1]);
+  assert.equal(p.toolNames.get(specs[1]), long);
+  assert.equal(p.toolNames.has("Bash"), false);
+  // Kiro calls the renamed tool: the client sees its own name.
+  const c = new Completion(1);
+  c.toolNames = p.toolNames;
+  const { tool } = c.accept({
+    headers: { ":event-type": "toolUseEvent", ":message-type": "event" },
+    data: { name: specs[2], toolUseId: "x", input: "{}", stop: true },
+  });
+  assert.equal(tool?.name, dotted);
+  assert.throws(
+    () => prepare({ model: defaults.models[0], tools: [{ name: "", input_schema: schema }], messages: [{ role: "user", content: "hi" }] }, "anthropic", defaults),
+    /1–256 characters/,
+  );
+});
