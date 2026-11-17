@@ -20,6 +20,8 @@ export interface Prepared {
   includeUsage: boolean;
   /** Request fields accepted but not forwarded upstream. */
   ignored: string[];
+  /** Client's max_tokens / max_completion_tokens (Kiro itself has no output limit). */
+  maxTokens?: number;
   payload: Obj;
   estimatedInput: number;
 }
@@ -291,6 +293,7 @@ export function prepare(
     stream: body.stream === true,
     includeUsage: body.stream_options?.include_usage === true,
     ignored,
+    maxTokens: body.max_tokens ?? body.max_completion_tokens,
     payload,
     estimatedInput: estimateTokens(JSON.stringify(payload)),
   };
@@ -414,6 +417,8 @@ export class Completion {
   reportedCredits: number | null = null;
   contextPercent: number | null = null;
   terminal = false;
+  /** Set when the answer stopped for a reason other than end of turn / tool use. */
+  stopReason?: "max_tokens";
   active?: ToolCall;
   constructor(estimatedInput: number) {
     this.inputTokens = estimatedInput;

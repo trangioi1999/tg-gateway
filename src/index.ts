@@ -39,7 +39,14 @@ const json = (
     status,
     headers: { "Cache-Control": "no-store", ...headers },
   });
-function failure(error: unknown, id?: string, mode: ApiMode = "openai") {
+/** Hard cap per request; `timeoutSeconds` is an idle timeout (no upstream bytes). */
+const MAX_REQUEST_MS = 30 * 60_000;
+function failure(
+  error: unknown,
+  id?: string,
+  mode: ApiMode = "openai",
+  billed = false,
+) {
   const e =
     error instanceof HttpError
       ? error
@@ -55,7 +62,11 @@ function failure(error: unknown, id?: string, mode: ApiMode = "openai") {
       ...(id ? { request_id: id } : {}),
     },
     e.status,
-    id ? { "x-request-id": id } : {},
+    {
+      ...(id ? { "x-request-id": id } : {}),
+      // Upstream already charged for this answer: tell SDK clients not to resend it.
+      ...(billed ? { "x-should-retry": "false" } : {}),
+    },
   );
 }
 export class Gateway extends DurableObject<Env> {
@@ -94,6 +105,14 @@ export class Gateway extends DurableObject<Env> {
       );
     if (!columns.has("cost_usd"))
       this.sql.exec("ALTER TABLE requests ADD COLUMN cost_usd REAL");
+    if (!columns.has("optimizations"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN optimizations TEXT NOT NULL DEFAULT ''",
+      );
+    if (!columns.has("saved_tokens"))
+      this.sql.exec(
+        "ALTER TABLE requests ADD COLUMN saved_tokens INTEGER NOT NULL DEFAULT 0",
+      );
     this.sql.exec(
       `CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL)`,
     );
@@ -489,23 +508,39 @@ export class Gateway extends DurableObject<Env> {
     let result: Completion | CompatUsage | undefined,
       recorded = false,
       sent = false;
+    // Credit-saving steps applied to this request (shown in the ledger).
+    const optimizations: string[] = [];
+    let savedTokens = 0,
+      free = false;
     const abort = new AbortController();
-    const timer = setTimeout(
+    // Idle timeout: every upstream chunk resets it, so long but live answers are not cut
+    // off (a cut answer is retried by clients and charged again).
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const touch = () => {
+      clearTimeout(idle);
+      idle = setTimeout(
+        () => abort.abort(new Error("timeout")),
+        s.timeoutSeconds * 1000,
+      );
+    };
+    touch();
+    const cap = setTimeout(
       () => abort.abort(new Error("timeout")),
-      s.timeoutSeconds * 1000,
+      MAX_REQUEST_MS,
     );
     const cancel = () => abort.abort(new Error("client_disconnect"));
     request.signal.addEventListener("abort", cancel, { once: true });
     const finish = (status: number, code: string | null = null) => {
       if (recorded) return;
       recorded = true;
-      clearTimeout(timer);
+      clearTimeout(idle);
+      clearTimeout(cap);
       request.signal.removeEventListener("abort", cancel);
       result?.finalize();
       const input = sent ? (result?.inputTokens ?? 0) : 0,
         output = sent ? (result?.outputTokens ?? 0) : 0;
       this.sql.exec(
-        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=?,cost_usd=? WHERE id=?`,
+        `UPDATE requests SET finished=?,status=?,latency=?,input_tokens=?,output_tokens=?,input_source=?,output_source=?,reported_credits=?,estimated_credits=?,error_code=?,context_percent=?,cost_usd=?,optimizations=?,saved_tokens=? WHERE id=?`,
         Date.now(),
         status,
         Date.now() - started,
@@ -514,10 +549,12 @@ export class Gateway extends DurableObject<Env> {
         sent ? (result?.inputSource ?? "unknown") : "unknown",
         sent ? (result?.outputSource ?? "unknown") : "unknown",
         result?.reportedCredits ?? null,
-        credits(input, output, s),
+        free ? 0 : credits(input, output, s),
         code,
         result?.contextPercent ?? null,
         result instanceof CompatUsage ? result.costUsd : null,
+        optimizations.join(","),
+        savedTokens,
         id,
       );
     };
@@ -602,6 +639,7 @@ export class Gateway extends DurableObject<Env> {
         const decoder = new TextDecoder();
         const relay = new TransformStream<Uint8Array, Uint8Array>({
           transform(chunk, controller) {
+            touch();
             meter.observe(decoder.decode(chunk, { stream: true }));
             controller.enqueue(chunk);
           },
@@ -716,6 +754,7 @@ export class Gateway extends DurableObject<Env> {
             for (;;) {
               const { value, done } = await upstream.read();
               if (done) break;
+              touch();
               bytes += value.length;
               if (bytes > 16 * 1024 * 1024)
                 throw new HttpError(502, "output_limit", "Upstream output exceeded 16 MiB.");
@@ -757,6 +796,33 @@ export class Gateway extends DurableObject<Env> {
         Number(prepared.stream),
         id,
       );
+      if (prepared.maxTokens === 1) {
+        // Kiro has no output limit, so a 1-token probe (Claude Code's quota check) would be
+        // a full paid answer. Answer it here: empty text, stopped by max_tokens.
+        const local = new Completion(prepared.estimatedInput);
+        local.stopReason = "max_tokens";
+        local.outputSource = "reported";
+        result = local;
+        sent = true;
+        free = true;
+        optimizations.push("local_reply");
+        savedTokens = prepared.estimatedInput;
+        const formatter = new Formatter(mode, id, prepared.model);
+        const headers = { "x-request-id": id, "x-gateway-local": "max_tokens_1" };
+        finish(200);
+        if (!prepared.stream) return json(formatter.json(local), 200, headers);
+        return new Response(
+          formatter.start(local.inputTokens) +
+            formatter.finish(local, prepared.includeUsage),
+          {
+            headers: {
+              ...headers,
+              "Cache-Control": "no-store",
+              "Content-Type": "text/event-stream; charset=utf-8",
+            },
+          },
+        );
+      }
       const auth = await this.auth.get();
       const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);
       if (profileArn) prepared.payload.profileArn = profileArn;
@@ -822,7 +888,7 @@ export class Gateway extends DurableObject<Env> {
       const unsignalled = (c: Completion) =>
         c.terminal ? null : "no_completion_signal";
       if (!prepared.stream) {
-        await consume(response, prepared, result);
+        await consume(response, prepared, result, undefined, touch);
         finish(200, unsignalled(result));
         return json(formatter.json(result), 200, headers);
       }
@@ -842,7 +908,7 @@ export class Gateway extends DurableObject<Env> {
           await consume(response, prepared, completion, async (delta) => {
             if (delta.text) await write(formatter.text(delta.text));
             if (delta.tool) await write(formatter.tool(delta.tool));
-          });
+          }, touch);
           finish(200, unsignalled(completion));
           await write(formatter.finish(completion, prepared.includeUsage));
         } catch (error) {
@@ -885,6 +951,7 @@ export class Gateway extends DurableObject<Env> {
             ),
         id,
         mode,
+        sent,
       );
     }
   }
