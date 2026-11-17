@@ -14,7 +14,8 @@ import {
   readJson,
   digest,
 } from "./security.ts";
-import { prepare, Completion, credits, object } from "./protocol.ts";
+import { prepare, rebuild, Completion, credits, object } from "./protocol.ts";
+import { clearToolResults } from "./context.ts";
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
 import { detectClient } from "./clients.ts";
@@ -822,6 +823,19 @@ export class Gateway extends DurableObject<Env> {
             },
           },
         );
+      }
+      if (s.clearToolResults) {
+        const trimmed = clearToolResults(prepared.conversation, {
+          triggerTokens: s.clearTriggerTokens,
+          keepToolUses: s.clearKeepToolUses,
+          clearInputs: s.clearToolInputs,
+        });
+        if (trimmed.savedTokens) {
+          prepared.conversation.turns = trimmed.turns;
+          rebuild(prepared);
+          optimizations.push(`cleared:${trimmed.cleared}`);
+          savedTokens += trimmed.savedTokens;
+        }
       }
       const auth = await this.auth.get();
       const profileArn = await this.auth.profileArn(s.apiRegion, s.kiroVersion);

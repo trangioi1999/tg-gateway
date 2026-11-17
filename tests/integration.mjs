@@ -375,7 +375,7 @@ async function signedIn(mf) {
   const calls = async () => (await (await mf.getWorker("upstream")).fetch("https://q.us-east-1.amazonaws.com/calls")).json();
   return { send, calls };
 }
-test("credit savers: local 1-token reply, idle timeout, no retry after billing", async () => {
+test("credit savers: local 1-token reply, idle timeout, no retry after billing, tool result clearing", async () => {
   const mf = gateway(recording);
   try {
     const { send, calls } = await signedIn(mf);
@@ -400,7 +400,29 @@ test("credit savers: local 1-token reply, idle timeout, no retry after billing",
     const broken = await message("broken-tool");
     assert.equal(broken.status, 502);
     assert.equal(broken.headers.get("x-should-retry"), "false");
+    // Old tool output is replaced before it reaches Kiro once the prompt is large.
+    s = { ...s, clearTriggerTokens: 1000, clearKeepToolUses: 1 };
+    assert.equal((await put(s)).status, 200);
+    const tools = [{ name: "Read", input_schema: { type: "object", properties: {} } }];
+    const history = [{ role: "user", content: "read both" }];
+    for (const id of ["a", "b"])
+      history.push(
+        { role: "assistant", content: [{ type: "tool_use", id, name: "Read", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: id.repeat(6000) }] },
+      );
+    history.push({ role: "assistant", content: "Done reading." }, { role: "user", content: "now summarize" });
+    const trimmed = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-haiku-4.5", max_tokens: 100, tools, messages: history }),
+    });
+    assert.equal(trimmed.status, 200);
+    const sentHistory = JSON.stringify((await calls()).at(-1).conversationState.history);
+    assert.match(sentHistory, /Tool result cleared by gateway/);
+    assert.ok(!sentHistory.includes("a".repeat(6000)));
+    assert.ok(sentHistory.includes("b".repeat(6000)), "most recent tool result kept");
     const rows = (await (await send("/api/requests?days=1")).json()).items;
+    const clearedRow = rows.find((r) => r.optimizations === "cleared:1");
+    assert.ok(clearedRow.saved_tokens > 1000);
     const local = rows.find((r) => r.optimizations.includes("local_reply"));
     assert.equal(local.estimated_credits, 0);
     assert.equal(rows.find((r) => r.error_code === "invalid_tool_arguments").status, 502);

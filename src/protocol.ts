@@ -14,8 +14,50 @@ export function modelId(model: string): string {
     .replace(/-\d{8}$/, "")
     .replace(/(claude-(?:sonnet|haiku|opus)-\d+)-(\d+)$/, "$1.$2");
 }
+/** Kiro conversation before it is serialized: optimizations rewrite `turns`. */
+export interface Conversation {
+  id: string;
+  /** System prompt; sent prepended to the first user turn. */
+  system: string;
+  /** Alternating userInputMessage / assistantResponseMessage entries; the last is the current user turn. */
+  turns: Obj[];
+  tools: Obj[];
+}
+export function buildPayload(c: Conversation): Obj {
+  const turns = c.turns.slice();
+  if (c.system) {
+    const first = turns[0].userInputMessage;
+    turns[0] = {
+      userInputMessage: { ...first, content: c.system + "\n\n" + first.content },
+    };
+  }
+  let current = turns.pop()!;
+  if (c.tools.length) {
+    const message = current.userInputMessage;
+    current = {
+      userInputMessage: {
+        ...message,
+        userInputMessageContext: { ...message.userInputMessageContext, tools: c.tools },
+      },
+    };
+  }
+  return {
+    conversationState: {
+      conversationId: c.id,
+      chatTriggerType: "MANUAL",
+      currentMessage: current,
+      ...(turns.length ? { history: turns } : {}),
+    },
+  };
+}
+/** Rebuild payload and size estimate after `conversation` changed. */
+export function rebuild(p: Prepared) {
+  p.payload = buildPayload(p.conversation);
+  p.estimatedInput = estimateTokens(JSON.stringify(p.payload));
+}
 export interface Prepared {
   model: string;
+  conversation: Conversation;
   stream: boolean;
   includeUsage: boolean;
   /** Request fields accepted but not forwarded upstream. */
@@ -262,9 +304,6 @@ export function prepare(
         origin: "AI_EDITOR",
       },
     });
-  if (system.trim())
-    history[0].userInputMessage.content =
-      system.trim() + "\n\n" + history[0].userInputMessage.content;
   if (!history.at(-1)!.userInputMessage)
     history.push({
       userInputMessage: {
@@ -273,23 +312,18 @@ export function prepare(
         origin: "AI_EDITOR",
       },
     });
-  const current = history.pop()!;
-  if (kiroTools.length) {
-    current.userInputMessage.userInputMessageContext ??= {};
-    current.userInputMessage.userInputMessageContext.tools = kiroTools;
-  }
-  const payload: Obj = {
-    conversationState: {
-      conversationId: crypto.randomUUID(),
-      chatTriggerType: "MANUAL",
-      currentMessage: current,
-      ...(history.length ? { history } : {}),
-    },
+  const conversation: Conversation = {
+    id: crypto.randomUUID(),
+    system: system.trim(),
+    turns: history,
+    tools: kiroTools,
   };
+  const payload = buildPayload(conversation);
   if (profileArn) payload.profileArn = profileArn;
   // Kiro upstream does not expose a verified max_tokens field here. It is accepted as a compatibility hint only (documented).
   return {
     model,
+    conversation,
     stream: body.stream === true,
     includeUsage: body.stream_options?.include_usage === true,
     ignored,
