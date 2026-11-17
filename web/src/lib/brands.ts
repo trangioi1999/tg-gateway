@@ -64,3 +64,15 @@ export const colorBrands = [
   "deepseek",
   "qwen",
 ];
+
+
+/** Model identity is independent of the provider that routes the request. */
+export function modelBrand(model: string): string {
+  const id = model.toLowerCase().split("/").pop() ?? "";
+  if (/^(claude|opus|sonnet|haiku)(?:[-.\s]|$)/.test(id)) return "claude";
+  if (/^(gpt|chatgpt|o[1-9])(?:[-.\s]|$)/.test(id)) return "openai";
+  if (id.startsWith("gemini")) return "gemini";
+  if (id.startsWith("deepseek")) return "deepseek";
+  if (id.startsWith("qwen")) return "qwen";
+  return "";
+}
