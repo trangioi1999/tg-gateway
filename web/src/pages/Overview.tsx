@@ -1,6 +1,6 @@
+import type { ReactNode } from "react";
 import Brand from "../components/Brand";
 import OverviewSkeleton from "../components/OverviewSkeleton";
-import Skeleton from "../components/Skeleton";
 import ErrorCard from "../components/ErrorCard";
 import Button from "../components/Button";
 import { useEffect, useState } from "react";
@@ -13,7 +13,7 @@ import { useApi } from "../hooks/useApi";
 import { comparisonText, localDate, periodQuery, providersUrl, type PeriodValue } from "../lib/period";
 import { fmtCompact, fmtInt, fmtMs } from "../lib/format";
 import PeriodBar from "../components/PeriodBar";
-import ProviderTabs from "../components/ProviderTabs";
+import { providerLabel } from "../lib/brands";
 import QuotaCard from "../components/QuotaCard";
 import Kpi from "../components/Kpi";
 import Gauge from "../components/Gauge";
@@ -25,7 +25,7 @@ function selectedProvider() {
   const id = new URLSearchParams(location.search).get("provider") ?? "";
   return ["kiro", "anthropic", "openrouter", "deploy"].includes(id) ? id : "";
 }
-export default function Overview() {
+export default function Overview({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
       period: "week",
       anchor: localDate(),
@@ -48,17 +48,12 @@ export default function Overview() {
     "/api/requests?" + query + "&page=1&pageSize=10",
     revision,
   );
-  // Providers with traffic, from the unfiltered view (a filtered view only lists the selected one).
-  const [active, setActive] = useState<string[]>([]);
-  useEffect(() => {
-    if (data && !provider && !loading) setActive(data.byProvider.filter((b) => b.requests > 0).map((b) => b.provider));
-  }, [data, provider, loading]);
   const t = data?.totals,
     p = data?.previous;
   const success = t && t.requests ? (t.successful / t.requests) * 100 : 0,
     previousSuccess = p && p.requests ? (p.successful / p.requests) * 100 : 0;
   return (
-    <section className="page">
+    <section className="page overview">
       <div className="top">
         <div>
           <h1>
@@ -72,22 +67,19 @@ export default function Overview() {
               : "Thống kê hoạt động gateway."}
           </p>
         </div>
-        <Button
+        <div className="tools"><Button
           className="btn icon"
           aria-label="Làm mới" rotate
             loading={loading || providers.loading || recent.loading}
           onClick={() => refresh((n) => n + 1)}
         >
           ↻
-        </Button>
+        </Button>{headerTools}</div>
       </div>
-      <PeriodBar value={period} onChange={setPeriod} />
-      {providers.loading && !providers.data ? <Skeleton className="skeleton-tabs" rows={4} /> : <ProviderTabs loading={providers.loading}
-        active={active}
-        providers={providers.data?.providers ?? []}
-        value={provider}
-        onChange={setProvider}
-      />}
+      <div className="period-row">
+        <PeriodBar value={period} onChange={setPeriod} />
+        {provider && <button className="btn provider-chip" onClick={() => go("/overview")} aria-label={`Bỏ lọc ${providerLabel(provider)}`}><Brand id={provider} size={16} />{providerLabel(provider)} <span aria-hidden="true">×</span></button>}
+      </div>
       {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
       {loading && !data && <OverviewSkeleton />}
       {error && <ErrorCard message={error} onRetry={() => refresh(n => n + 1)} />}
@@ -95,9 +87,9 @@ export default function Overview() {
         <div key={query} className={loading ? "overview-content section-enter refetching" : "overview-content section-enter"}>
           <div className="quota">
             <QuotaCard
-              id={provider}
+              id={provider || (providers.data?.providers.some(p => p.id === "kiro" && p.configured) ? "kiro" : "")}
               provider={providers.data?.providers.find(
-                (p) => p.id === provider,
+                (p) => p.id === (provider || "kiro") && p.configured,
               )}
               month={data.month}
               budget={data.settings.monthlyCreditBudget}
@@ -207,7 +199,7 @@ export default function Overview() {
           </div>
         </div>
       )}
-      <article className="card">
+      <article className="card recent-card">
         <div className="head">
           <div>
             <h2>Request gần đây</h2>
@@ -220,12 +212,12 @@ export default function Overview() {
               go("/requests");
             }}
           >
-            Xem tất cả →
+            Xem tất cả lịch sử →
           </a>
         </div>
-        {recent.loading && !recent.data && <Skeleton className="skeleton-table" rows={6} />}
+
         {recent.error && <ErrorCard message={recent.error} onRetry={recent.retry} />}
-        {recent.data && <div className={recent.loading ? "refetching" : ""}><RequestTable rows={recent.data.items.slice(0, 5)} compact onOpen={setSelected} /></div>}
+        <RequestTable rows={recent.data?.items.slice(0, 5) ?? []} loading={recent.loading && !recent.data} rowCount={5} compact onOpen={setSelected} />
 
       </article>
       {selected && (

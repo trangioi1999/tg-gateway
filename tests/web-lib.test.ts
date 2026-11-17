@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fmtCompact, fmtMs, fmtDelta } from "../web/src/lib/format.ts";
+import { fmtCompact, fmtCredit, fmtMs, fmtDelta } from "../web/src/lib/format.ts";
 import { clientLabel, brandOf } from "../web/src/lib/brands.ts";
 import { CLIENTS } from "../src/clients.ts";
 test("Vietnamese dashboard formatting", () => {
+  assert.equal(fmtCredit(0.06), "0,06");
   assert.equal(fmtCompact(48_200_000), "48,2M");
   assert.equal(fmtMs(894), "894 ms");
   assert.equal(fmtMs(1904), "1,9 s");
@@ -126,4 +127,23 @@ test("KPI and period comparisons share Vietnamese labels", () => {
   assert.equal(comparisonText({ period: "week", anchor: "2026-11-17" }), "so với tuần trước");
   assert.equal(comparisonText({ period: "month", anchor: "2026-11-17" }), "so với tháng 10");
   assert.equal(comparisonText({ period: "month", anchor: "2026-01-17" }), "so với tháng 12");
+});
+
+import { requestDate, requestSource, requestStatus, savingTags } from "../web/src/lib/requestPresentation.ts";
+test("request table presents HTTP, provider errors and replay status", () => {
+  assert.deepEqual(requestStatus({ status: 0, error_code: null, optimizations: "" }), { tone: "run", label: "Đang chạy" });
+  assert.deepEqual(requestStatus({ status: 530, error_code: "kiro_http_530", optimizations: "" }), { tone: "err", label: "kiro_http_530" });
+  assert.equal(requestStatus({ status: 429, error_code: null, optimizations: "" }).label, "429");
+  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "cache_hit" }).label, "200 · cache");
+  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "local_reply" }).label, "200 · local");
+});
+test("request table derives savings, local sources and calendar dates", () => {
+  assert.deepEqual(savingTags("cleared:8,compact_new,cache_hit,local_reply", 64000), ["clear −64K", "compact", "cache", "max_tokens=1"]);
+  assert.deepEqual(savingTags("", 0), []);
+  assert.deepEqual(savingTags("compact,compact_new", 1200), ["compact"]);
+  assert.deepEqual(requestSource({ ip: "::1", city: null, country: null }), { place: "local", ip: "local" });
+  assert.deepEqual(requestSource({ ip: "1.2.3.4", city: "Hà Nội", country: "VN" }), { place: "Hà Nội, VN", ip: "1.2.3.4" });
+  const now = new Date(2026, 10, 18, 9);
+  assert.equal(requestDate(new Date(2026, 10, 18, 1).getTime(), now), "Hôm nay");
+  assert.equal(requestDate(new Date(2026, 10, 17, 23).getTime(), now), "17/11");
 });

@@ -5,16 +5,15 @@ import Brand from "./Brand";
 import { providerLabel } from "../lib/brands";
 import { fmtCompact } from "../lib/format";
 import Logo from "./Logo";
-import ThemeToggle from "./ThemeToggle";
 import Skeleton from "./Skeleton";
 import ErrorCard from "./ErrorCard";
 import Button from "./Button";
 import { useRoute } from "../router";
-import type { Theme } from "../theme";
 import { api } from "../api/client";
 import { useState } from "react";
-export default function Sidebar({ theme, setTheme }: { theme: Theme; setTheme: (theme: Theme) => void }) {
+export default function Sidebar() {
   const { path, go } = useRoute();
+  const provider = new URLSearchParams(location.search).get("provider");
   const providers = useApi<ProvidersResponse>(providersUrl());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -29,14 +28,14 @@ export default function Sidebar({ theme, setTheme }: { theme: Theme; setTheme: (
         {(
           [
             ["/overview", "Tổng quan"],
-            ["/requests", "Lịch sử request"],
+            ["/requests", "Lịch sử"],
             ["/settings", "Cài đặt"],
           ] as const
         ).map(([p, label]) => (
           <a
             key={p}
             href={p}
-            aria-current={path === p ? "page" : undefined}
+            aria-current={path === p && !(p === "/overview" && provider) ? "page" : undefined}
             onClick={(e) => {
               if (!e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
@@ -53,6 +52,7 @@ export default function Sidebar({ theme, setTheme }: { theme: Theme; setTheme: (
           .map((p) => (
             <a
               className={providers.loading ? "refetching" : ""}
+              aria-current={path === "/overview" && provider === p.id ? "page" : undefined}
               key={p.id}
               href={"/overview?provider=" + p.id}
               onClick={(e) => {
@@ -75,7 +75,6 @@ export default function Sidebar({ theme, setTheme }: { theme: Theme; setTheme: (
         {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
       </nav>
       <div className="side-foot">
-        <ThemeToggle theme={theme} setTheme={setTheme} />
         <Button loading={busy}
           className="btn full"
           onClick={() => {

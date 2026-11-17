@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useToast } from "../hooks/useToast";
 import Toast from "../components/Toast";
 import Skeleton from "../components/Skeleton";
@@ -18,7 +19,7 @@ import PeriodBar from "../components/PeriodBar";
 import RequestTable from "../components/RequestTable";
 import RequestDialog from "../components/RequestDialog";
 import ConfirmClear from "../components/ConfirmClear";
-export default function Requests() {
+export default function Requests({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
       period: "week",
       anchor: localDate(),
@@ -28,7 +29,7 @@ export default function Requests() {
     [status, setStatus] = useState(""),
     [provider, setProvider] = useState(""),
     [page, setPage] = useState(1),
-    [pageSize, setPageSize] = useState(25),
+    [pageSize, setPageSize] = useState(10),
     [revision, refresh] = useState(0),
     [clear, setClear] = useState(false),
     [toast, setToast] = useToast(),
@@ -62,11 +63,11 @@ export default function Requests() {
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
   const summary = data?.summary;
   return (
-    <section className="page">
+    <section className="page requests">
       <div className="top">
         <div>
           <div className="crumb">Workspace</div>
-          <h1>Lịch sử request</h1>
+          <h1>Lịch sử</h1>
           <p className="lead">
             Bấm một request để xem nguồn gọi, payload, phản hồi và lỗi.
           </p>
@@ -108,6 +109,7 @@ export default function Requests() {
           >
             ↻
           </Button>
+          {headerTools}
         </div>
       </div>
       <PeriodBar
@@ -129,15 +131,16 @@ export default function Requests() {
         ].map(([label, value]) => (
           <article className="card" key={label}>
             <small>{label}</small>
-            <b className="num">
+            <b className={`num${label === "Lỗi" ? " down" : label === "Token tiết kiệm" ? " up" : ""}`}>
               {loading && !data ? <Skeleton /> : typeof value === "number" ? fmtCompact(value) : "—"}
             </b>
           </article>
         ))}
       </div>
-      <article className="card">
+      <article className="card history-card">
         <div className="filters">
           <label className="search">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
             <input
               aria-label="Tìm request"
               placeholder="Tìm agent, model, IP, mã lỗi…"
@@ -186,9 +189,9 @@ export default function Requests() {
             {data ? fmtInt(data.total) + " request" : ""}
           </span>
         </div>
-        {loading && !data && <Skeleton className="skeleton-table" rows={7} />}
+
         {error && <ErrorCard message={error} onRetry={() => refresh(n => n + 1)} />}
-        {data && <div className={loading ? "refetching" : ""}><RequestTable rows={data.items} onOpen={setSelected} /></div>}
+        <div className={loading && data ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} /></div>
         <div className="pager">
           <span>
             {data?.total

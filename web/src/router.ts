@@ -11,10 +11,11 @@ const subscribe = (cb: () => void) => {
   return () => window.removeEventListener("popstate", cb);
 };
 export function useRoute() {
-  const path = useSyncExternalStore(
+  const url = useSyncExternalStore(
     subscribe,
-    () => location.pathname,
-  ) as Route;
+    () => location.pathname + location.search,
+  );
+  const path = url.split("?")[0] as Route;
   return {
     path: ["/login", "/overview", "/requests", "/settings"].includes(path)
       ? path

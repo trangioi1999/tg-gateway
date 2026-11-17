@@ -35,7 +35,7 @@ export default function Stepper({
           <span>Bước</span>
           <span>Thời lượng</span>
         </li>
-        {steps.map(presentStep).map((s) => (
+        {steps.map(presentStep).map((s, index) => (
           <li className={"row " + s.state} key={s.key}>
             <time className="ts">
               {s.at === null ? "—" : fmtClock(started + s.at)}
@@ -46,8 +46,8 @@ export default function Stepper({
                 : s.state === "done"
                   ? "✓"
                   : s.state === "error"
-                    ? "!"
-                    : "–"}
+                    ? "✕"
+                    : s.state === "pending" ? index + 1 : "–"}
             </span>
             <div className="bd">
               <b>

@@ -1,5 +1,6 @@
 const number = (n: number, digits = 0) =>
   n.toLocaleString("vi-VN", { maximumFractionDigits: digits });
+export const fmtCredit = (n: number) => number(n, 2);
 export const fmtInt = (n: number) => number(n);
 export const fmtCompact = (n: number) =>
   Math.abs(n) >= 1e6

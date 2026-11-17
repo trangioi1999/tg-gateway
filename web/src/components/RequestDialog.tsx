@@ -1,4 +1,5 @@
 import Skeleton from "./Skeleton";
+import { requestStatus } from "../lib/requestPresentation";
 import ErrorCard from "./ErrorCard";
 import { useDialogClose } from "../hooks/useDialogClose";
 import { useEffect, useRef, useState } from "react";
@@ -86,7 +87,7 @@ export default function RequestDialog({
       }}
       aria-labelledby="request-title"
     >
-      <div className="sheet">
+      <div className="sheet request-sheet">
         <div className="sh-head">
           <div>
             <h2 id="request-title" ref={titleRef} tabIndex={-1}>
@@ -95,18 +96,7 @@ export default function RequestDialog({
             {r?.status === 0 && !error && <span className="updating" role="status">Đang cập nhật</span>}
             {r && (
               <div className="meta">
-                <span
-                  className={
-                    "st " +
-                    (r.status === 0 ? "run" : r.status >= 400 ? "err" : "ok")
-                  }
-                >
-                  {r.status === 0
-                    ? "Đang chạy"
-                    : r.status >= 400
-                      ? "Lỗi " + r.status
-                      : "Thành công"}
-                </span>
+                <span className={`st ${requestStatus(r).tone}`}>{requestStatus(r).label}</span>
                 <span>
                   {fmtClock(r.started)} · {fmtMs(r.latency)}
                 </span>

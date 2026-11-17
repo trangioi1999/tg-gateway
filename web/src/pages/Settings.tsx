@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useToast } from "../hooks/useToast";
 import Skeleton from "../components/Skeleton";
 import ErrorCard from "../components/ErrorCard";
@@ -45,7 +46,7 @@ function currentSection() {
   const hash = location.hash.slice(1);
   return sections.some(([id]) => id === hash) ? hash : "general";
 }
-export default function Settings() {
+export default function Settings({ headerTools }: { headerTools: ReactNode }) {
   const [revision, retry] = useState(0),
     result = useApi<SettingsResponse>("/api/settings", revision),
     providers = useApi<ProvidersResponse>(providersUrl(), revision);
@@ -70,6 +71,14 @@ export default function Settings() {
       window.removeEventListener("popstate", update);
     };
   }, []);
+  const visibleSections = sections.filter(([id]) => !["kiro", "anthropic", "openrouter"].includes(id) || providers.data?.providers.some(p => p.id === id && p.configured));
+  const activeSection = visibleSections.some(([id]) => id === section) ? section : "general";
+  useEffect(() => {
+    if (!providers.loading && section !== activeSection) {
+      setSection("general");
+      history.replaceState(null, "", location.pathname + location.search + "#general");
+    }
+  }, [providers.loading, section, activeSection]);
   const count =
     draft && saved
       ? (Object.keys(draft) as (keyof SettingsType)[]).filter(
@@ -129,24 +138,33 @@ export default function Settings() {
   }
   return (
     <section className="page">
-      <div className="top">
+      <div className="top settings-header">
         <div>
           <div className="crumb">Workspace</div>
           <h1>Cài đặt</h1>
           <p className="lead">Thay đổi áp dụng cho request mới.</p>
         </div>
+        <div className="tools">
+          <SaveBar
+              count={count}
+              busy={busy}
+              message={message}
+              onSave={save}
+          />
+          {headerTools}
+        </div>
+        {error && <p className="header-error error" role="alert">{error}</p>}
       </div>
-      {result.loading && !draft && <Skeleton className="card skeleton-settings" rows={6} />}
+      {result.loading && !draft && <div className="set-wrap" aria-busy="true"><nav className="snav" aria-label="Mục cài đặt">{visibleSections.map(([id, label]) => <button disabled key={id}><span className="si"><Skeleton /></span>{label}</button>)}</nav><div className="spanel"><Skeleton className="rows skeleton-settings" rows={6} /></div></div>}
       {result.error && <ErrorCard message={result.error} onRetry={result.retry} />}
       {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
-      {providers.loading && !providers.data && <Skeleton className="skeleton-tabs" rows={3} />}
       {draft && result.data && (
         <div className={result.loading || providers.loading ? "set-wrap refetching" : "set-wrap"}>
           <nav className="snav" aria-label="Mục cài đặt">
-            {sections.map(([id, label, icon], i) => (
+            {visibleSections.map(([id, label, icon]) => (
               <button
                 key={id}
-                aria-pressed={section === id}
+                aria-pressed={activeSection === id}
                 onClick={() => {
                   location.hash = id;
                   setSection(id);
@@ -164,7 +182,7 @@ export default function Settings() {
                       "var(--icon-budget)",
                       "var(--icon-connect)",
                       "var(--icon-data)",
-                    ][i],
+                    ][sections.findIndex(([key]) => key === id)],
                   }}
                 >
                   {["kiro", "anthropic", "openrouter"].includes(icon) ? (
@@ -178,10 +196,10 @@ export default function Settings() {
             ))}
           </nav>
           <div>
-            {sections.map(([id]) => {
+            {visibleSections.map(([id]) => {
               const Panel = panels[id];
               return (
-                <div className="spanel" key={id} hidden={section !== id}>
+                <div className="spanel" key={id} hidden={activeSection !== id}>
                   <fieldset disabled={busy}>
                     <Panel
                       draft={draft}
@@ -194,13 +212,7 @@ export default function Settings() {
                 </div>
               );
             })}
-            <SaveBar
-              count={count}
-              busy={busy}
-              error={error}
-              message={message}
-              onSave={save}
-            />
+
           </div>
         </div>
       )}

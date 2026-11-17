@@ -5,8 +5,8 @@
   --f-display:"Be Vietnam Pro",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --f-body:"Be Vietnam Pro",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
-  --w-h:700;--w-num:700;--w-label:600;--w-body:400;--track-h:-.03em;--h1:34px;
-  --r-card:20px;--r-ctl:9999px;--r-in:12px;
+  --w-h:700;--w-num:700;--w-label:600;--w-body:400;--track-h:-.03em;--h1:clamp(24px,1.95vw,28px);--density:clamp(12px,1.05vw,15px);--card-pad:var(--density);--request-row-height:56px;
+  --r-card:16px;--r-ctl:9999px;--r-in:12px;
   --bg:#f5f5f7;--surface:#ffffff;--surface-2:#fafafc;--panel:#f0f0f3;--fill:rgba(0,0,0,.05);--fill-2:rgba(0,0,0,.09);--line:rgba(0,0,0,.08);
   --ink:#1d1d1f;--muted:#6e6e73;--faint:#86868b;
   --accent:#0071e3;--accent-ink:#0066cc;--on-accent:#fff;--accent-soft:rgba(0,113,227,.1);
