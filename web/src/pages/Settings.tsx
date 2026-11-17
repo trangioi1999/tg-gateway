@@ -137,85 +137,82 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
     }
   }
   return (
-    <section className="page">
-      <div className="top settings-header">
+    <section className="page settings">
+      <div className="top">
         <div>
           <div className="crumb">Workspace</div>
           <h1>Cài đặt</h1>
           <p className="lead">Thay đổi áp dụng cho request mới.</p>
         </div>
-        <div className="tools">
-          <SaveBar
-              count={count}
-              busy={busy}
-              message={message}
-              onSave={save}
-          />
-          {headerTools}
-        </div>
-        {error && <p className="header-error error" role="alert">{error}</p>}
+        <div className="tools">{headerTools}</div>
       </div>
-      {result.loading && !draft && <div className="set-wrap" aria-busy="true"><nav className="snav" aria-label="Mục cài đặt">{visibleSections.map(([id, label]) => <button disabled key={id}><span className="si"><Skeleton /></span>{label}</button>)}</nav><div className="spanel"><Skeleton className="rows skeleton-settings" rows={6} /></div></div>}
-      {result.error && <ErrorCard message={result.error} onRetry={result.retry} />}
-      {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
-      {draft && result.data && (
-        <div className={result.loading || providers.loading ? "set-wrap refetching" : "set-wrap"}>
-          <nav className="snav" aria-label="Mục cài đặt">
-            {visibleSections.map(([id, label, icon]) => (
-              <button
-                key={id}
-                aria-pressed={activeSection === id}
-                onClick={() => {
-                  location.hash = id;
-                  setSection(id);
-                }}
-              >
-                <span
-                  className="si"
-                  style={{
-                    background: [
-                      "var(--icon-neutral)",
-                      "var(--fill)",
-                      "var(--fill)",
-                      "var(--fill)",
-                      "var(--icon-saving)",
-                      "var(--icon-budget)",
-                      "var(--icon-connect)",
-                      "var(--icon-data)",
-                    ][sections.findIndex(([key]) => key === id)],
+      <div className="settings-content">
+        {result.loading && !draft && <div className="set-wrap" aria-busy="true"><nav className="snav" aria-label="Mục cài đặt">{visibleSections.map(([id, label]) => <button disabled key={id}><span className="si"><Skeleton /></span>{label}</button>)}</nav><div className="spanel"><Skeleton className="rows skeleton-settings" rows={6} /></div></div>}
+        {result.error && <ErrorCard message={result.error} onRetry={result.retry} />}
+        {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
+        {draft && result.data && (
+          <div className={result.loading || providers.loading ? "set-wrap refetching" : "set-wrap"}>
+            <nav className="snav" aria-label="Mục cài đặt">
+              {visibleSections.map(([id, label, icon]) => (
+                <button
+                  key={id}
+                  aria-pressed={activeSection === id}
+                  onClick={() => {
+                    location.hash = id;
+                    setSection(id);
                   }}
                 >
-                  {["kiro", "anthropic", "openrouter"].includes(icon) ? (
-                    <Brand id={icon} size={18} />
-                  ) : (
-                    icon
-                  )}
-                </span>
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div>
-            {visibleSections.map(([id]) => {
-              const Panel = panels[id];
-              return (
-                <div className="spanel" key={id} hidden={activeSection !== id}>
-                  <fieldset disabled={busy}>
-                    <Panel
-                      draft={draft}
-                      saved={saved}
-                      set={set}
-                      secrets={result.data?.secrets ?? {}}
-                      providers={providers.data?.providers ?? []}
-                    />
-                  </fieldset>
-                </div>
-              );
-            })}
+                  <span
+                    className="si"
+                    style={{
+                      background: [
+                        "var(--icon-neutral)",
+                        "var(--fill)",
+                        "var(--fill)",
+                        "var(--fill)",
+                        "var(--icon-saving)",
+                        "var(--icon-budget)",
+                        "var(--icon-connect)",
+                        "var(--icon-data)",
+                      ][sections.findIndex(([key]) => key === id)],
+                    }}
+                  >
+                    {["kiro", "anthropic", "openrouter"].includes(icon) ? (
+                      <Brand id={icon} size={18} />
+                    ) : (
+                      icon
+                    )}
+                  </span>
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <div>
+              {visibleSections.map(([id]) => {
+                const Panel = panels[id];
+                return (
+                  <div className="spanel" key={id} hidden={activeSection !== id}>
+                    <fieldset disabled={busy}>
+                      <Panel
+                        draft={draft}
+                        saved={saved}
+                        set={set}
+                        secrets={result.data?.secrets ?? {}}
+                        providers={providers.data?.providers ?? []}
+                      />
+                    </fieldset>
+                  </div>
+                );
+              })}
 
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="settings-actions">
+        {error && <p className="error" role="alert">{error}</p>}
+        <SaveBar count={count} busy={busy} message={message} onSave={save} />
+      </div>
     </section>
   );
 }

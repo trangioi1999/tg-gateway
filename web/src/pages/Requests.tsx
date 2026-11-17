@@ -41,12 +41,13 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
       }
     });
   useEffect(() => {
+    if (search === q) return;
     const timer = setTimeout(() => {
       setQ(search);
       setPage(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [q, search]);
   const [exportError, setExportError] = useState("");
   const [exporting, setExporting] = useState(false);
   const params = new URLSearchParams(periodQuery(period));

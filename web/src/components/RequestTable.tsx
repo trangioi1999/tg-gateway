@@ -1,6 +1,6 @@
 import type { RequestRow } from "../../../src/dashboard/contract";
 import { fmtClock, fmtCredit, fmtInt, fmtMs } from "../lib/format";
-import { clientLabel } from "../lib/brands";
+import { clientLabel, modelBrand, providerLabel } from "../lib/brands";
 import { requestDate, requestStatus, requestSource, savingTags } from "../lib/requestPresentation";
 import Brand from "./Brand";
 import Skeleton from "./Skeleton";
@@ -22,7 +22,7 @@ export default function RequestTable({ rows, compact = false, loading = false, r
             <td className="tm num">{fmtClock(r.started)}<small>{requestDate(r.started)}</small></td>
             <td className="nw" title={clientLabel(r.client)}><span className="cell-brand"><Brand id={r.client} size={16} /><span>{clientLabel(r.client)}</span></span></td>
             {!compact && <td title={`${source.place} · ${source.ip}`}>{source.place}<small className="mono">{source.ip}</small></td>}
-            <td className="mono nw" title={r.model}><span className="cell-brand"><Brand id={r.provider} size={16} /><span>{r.model || "—"}</span></span></td>
+            <td className="mono nw" title={r.model + " · Qua " + providerLabel(r.provider)}><span className="cell-brand"><Brand id={modelBrand(r.model)} size={16} /><span>{r.model || "—"}</span></span></td>
             <td title={status.label}><span className={`st ${status.tone}`}>{status.label}</span></td>
             <td className="r num" title={`${fmtInt(r.input_tokens)} / ${fmtInt(r.output_tokens)}`}>{fmtInt(r.input_tokens)} / {r.status === 0 ? "—" : fmtInt(r.output_tokens)}</td>
             <td className="r num">{r.status === 0 ? "—" : fmtCredit(r.estimated_credits)}{!compact && <> / {r.reported_credits === null ? "—" : fmtCredit(r.reported_credits)}</>}</td>

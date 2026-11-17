@@ -15,7 +15,7 @@ export default function SaveBar({
   return (
     <div className="savebar">
       <div>
-        <span>Có {count} thay đổi chưa lưu</span>
+        {count > 0 && <span>Có {count} thay đổi chưa lưu</span>}
         <Toast message={message} />
       </div>
       <Button

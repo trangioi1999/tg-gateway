@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Brand from "../components/Brand";
+import Skeleton from "../components/Skeleton";
 import OverviewSkeleton from "../components/OverviewSkeleton";
 import ErrorCard from "../components/ErrorCard";
 import Button from "../components/Button";
@@ -13,7 +14,7 @@ import { useApi } from "../hooks/useApi";
 import { comparisonText, localDate, periodQuery, providersUrl, type PeriodValue } from "../lib/period";
 import { fmtCompact, fmtInt, fmtMs } from "../lib/format";
 import PeriodBar from "../components/PeriodBar";
-import { providerLabel } from "../lib/brands";
+import { modelBrand, providerLabel } from "../lib/brands";
 import QuotaCard from "../components/QuotaCard";
 import Kpi from "../components/Kpi";
 import Gauge from "../components/Gauge";
@@ -76,9 +77,30 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
           ↻
         </Button>{headerTools}</div>
       </div>
-      <div className="period-row">
-        <PeriodBar value={period} onChange={setPeriod} />
-        {provider && <button className="btn provider-chip" onClick={() => go("/overview")} aria-label={`Bỏ lọc ${providerLabel(provider)}`}><Brand id={provider} size={16} />{providerLabel(provider)} <span aria-hidden="true">×</span></button>}
+      <PeriodBar value={period} onChange={setPeriod} />
+      <div className="ptabs" role="group" aria-label="Lọc theo nhà cung cấp">
+        {providers.loading && !providers.data && (
+          <Skeleton className="provider-placeholder" rows={3} />
+        )}
+        {providers.data?.providers.filter(p => p.configured).map(p => {
+          const active = provider === p.id;
+          const usage = !p.ok ? "—" : p.id === "kiro"
+            ? `${fmtCompact(p.used ?? 0)} / ${fmtCompact(p.limit ?? 0)}`
+            : `$${fmtCompact(p.balanceUsd ?? p.monthCostUsd ?? 0)}`;
+          return (
+            <button
+              className="ptab"
+              type="button"
+              key={p.id}
+              aria-pressed={active}
+              onClick={() => go(active ? "/overview" : "/overview?provider=" + p.id)}
+            >
+              <Brand id={p.id} size={20} />
+              {providerLabel(p.id)}
+              <small>{usage}</small>
+            </button>
+          );
+        })}
       </div>
       {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
       {loading && !data && <OverviewSkeleton />}
@@ -180,7 +202,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <div className="list">
                 {data.models.map((m) => (
                   <div className="li" key={m.provider + m.model}>
-                    <span className="nm"><Brand id={m.provider} size={18} />{m.model}</span>
+                    <span className="nm"><Brand id={modelBrand(m.model)} size={18} /><span title={m.model}>{m.model}</span></span>
                     <span className="n">{fmtInt(m.requests)}</span>
                     <div className="bar">
                       <span
