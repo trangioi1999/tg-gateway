@@ -154,7 +154,7 @@ claude -p "chào"
 
 Sau đó mở dashboard → Lịch sử request: dòng mới có icon Claude Code và tên đường đi (Kiro/Anthropic/OpenRouter/deploy.com).
 
-Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5` khi đi Kiro. Đường Kiro nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (header `x-gateway-ignored-params`); không gửi được ảnh/PDF và tối đa 256 tool. Đường `anthropic/` không có các giới hạn này vì request được chuyển tiếp nguyên văn.
+Model ID dạng `claude-sonnet-4-5` hoặc `claude-sonnet-4-5-20250929` được chuẩn hóa thành `claude-sonnet-4.5` khi đi Kiro. Đường Kiro nhận `thinking`/`temperature` mà Claude Code luôn gửi nhưng không chuyển tiếp (header `x-gateway-ignored-params`); không gửi được ảnh/PDF (ảnh trong tool result được thay bằng một dòng ghi chú) và tối đa 256 tool. Tool call không ghép cặp được (request compact của Claude Code không kèm `tools`, MCP server bị ngắt, tool call bị ngắt giữa chừng, trùng ID) được gửi dưới dạng text thay vì báo lỗi 400; tên tool Kiro không nhận được tự đổi tên rồi đổi lại khi trả về. Đường `anthropic/` không có các giới hạn này vì request được chuyển tiếp nguyên văn.
 
 ## Tiết kiệm credit Kiro
 

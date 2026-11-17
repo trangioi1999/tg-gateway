@@ -114,6 +114,19 @@ function textContent(content: unknown): string {
       .join("\n");
   return invalid("Content must be text or text blocks.");
 }
+/** Tool result text; images/documents (e.g. Read on a PNG) become a note, Kiro takes text only. */
+function resultContent(content: unknown): string {
+  if (!Array.isArray(content)) return textContent(content);
+  return content
+    .map((b) =>
+      object(b) && b.type === "text" && typeof b.text === "string"
+        ? b.text
+        : object(b) && typeof b.type === "string"
+          ? `[${b.type} omitted: the Kiro route accepts text only]`
+          : invalid("Invalid tool result content."),
+    )
+    .join("\n");
+}
 export function prepare(
   body: unknown,
   mode: "openai" | "anthropic",
@@ -210,7 +223,6 @@ export function prepare(
   let system = mode === "anthropic" ? textContent(body.system) : "";
   if (longDocs.length)
     system = [system, "# Tool documentation", ...longDocs].filter(Boolean).join("\n\n");
-  const pending = new Set<string>();
   for (const message of body.messages) {
     if (!object(message) || typeof message.role !== "string")
       invalid("Invalid message.");
@@ -236,6 +248,9 @@ export function prepare(
         if (!object(block)) invalid("Invalid content block.");
         if (block.type === "text")
           content += (content ? "\n" : "") + textContent(block.text);
+        // Reasoning from an earlier model (e.g. the session started on anthropic/): Kiro
+        // has no field for it and the answer text already carries the outcome.
+        else if (block.type === "thinking" || block.type === "redacted_thinking") continue;
         else if (block.type === "tool_use" && role === "assistant") {
           if (
             typeof block.id !== "string" ||
@@ -253,7 +268,7 @@ export function prepare(
             invalid("Invalid tool result ID.");
           toolResults.push({
             toolUseId: block.tool_use_id,
-            content: [{ text: textContent(block.content) || "(empty result)" }],
+            content: [{ text: resultContent(block.content) || "(empty result)" }],
             status: block.is_error ? "error" : "success",
           });
         } else
@@ -286,18 +301,6 @@ export function prepare(
         return { toolUseId: t.id, name: t.function.name, input };
       });
     }
-    for (const t of toolUses) {
-      if (!names.has(t.name) || pending.has(t.toolUseId))
-        invalid("Tool call must reference a declared tool with a unique ID.");
-      t.name = names.get(t.name);
-      pending.add(t.toolUseId);
-    }
-    for (const t of toolResults) {
-      if (!pending.delete(t.toolUseId))
-        invalid("Tool result has no matching pending call.");
-    }
-    if (pending.size && !toolUses.length && !toolResults.length)
-      invalid("Pending tool calls require results.");
     const key =
       role === "user" ? "userInputMessage" : "assistantResponseMessage";
     const value: Obj = { content: content || "(empty)" };
@@ -320,8 +323,6 @@ export function prepare(
       }
     } else history.push({ [key]: value });
   }
-  if (pending.size)
-    invalid("Supply results for all pending tool calls before continuing.");
   if (!history.length) invalid("At least one user message is required.");
   if (!history[0].userInputMessage)
     history.unshift({
@@ -339,6 +340,7 @@ export function prepare(
         origin: "AI_EDITOR",
       },
     });
+  pairTools(history, names);
   const conversation: Conversation = {
     id: crypto.randomUUID(),
     system: system.trim(),
@@ -360,6 +362,70 @@ export function prepare(
     estimatedInput: estimateTokens(JSON.stringify(payload)),
   };
 }
+
+const FLATTENED_CHARS = 4000;
+function appendText(message: Obj, text: string, before = false) {
+  const current = message.content === "(empty)" ? "" : message.content;
+  message.content = [before ? text : current, before ? current : text].filter(Boolean).join("\n");
+}
+/**
+ * Kiro needs every tool call answered in the very next user turn and declared in this
+ * request's tool list. Claude Code breaks both routinely: compaction/title requests resend
+ * the history without `tools`, MCP servers come and go mid-session, interrupted calls have
+ * no result. Instead of rejecting the request, calls and results that cannot be paired are
+ * kept as plain text; paired calls get their Kiro tool name.
+ */
+export function pairTools(history: Obj[], names: Map<string, string>) {
+  const seen = new Set<string>();
+  for (let i = 0; i < history.length; i++) {
+    const assistant = history[i].assistantResponseMessage;
+    if (!assistant?.toolUses?.length) continue;
+    const next = history[i + 1]?.userInputMessage;
+    const answered = new Set<string>(
+      (next?.userInputMessageContext?.toolResults ?? []).map((r: Obj) => r.toolUseId),
+    );
+    const kept: Obj[] = [];
+    for (const use of assistant.toolUses) {
+      if (names.has(use.name) && answered.has(use.toolUseId) && !seen.has(use.toolUseId)) {
+        seen.add(use.toolUseId);
+        kept.push({ ...use, name: names.get(use.name) });
+      } else
+        appendText(
+          assistant,
+          `[Called tool ${use.name} (${use.toolUseId}) with ${clipText(JSON.stringify(use.input), FLATTENED_CHARS)}]`,
+        );
+    }
+    if (kept.length) assistant.toolUses = kept;
+    else delete assistant.toolUses;
+  }
+  for (let i = 0; i < history.length; i++) {
+    const user = history[i].userInputMessage;
+    const results: Obj[] | undefined = user?.userInputMessageContext?.toolResults;
+    if (!results?.length) continue;
+    const calls = new Set<string>(
+      (history[i - 1]?.assistantResponseMessage?.toolUses ?? []).map((u: Obj) => u.toolUseId),
+    );
+    const kept: Obj[] = [];
+    const loose: string[] = [];
+    for (const r of results) {
+      if (calls.has(r.toolUseId)) {
+        calls.delete(r.toolUseId);
+        kept.push(r);
+      } else
+        loose.push(
+          `[Result of tool call ${r.toolUseId}${r.status === "error" ? " (error)" : ""}: ${clipText(r.content.map((c: Obj) => c.text).join(""), FLATTENED_CHARS)}]`,
+        );
+    }
+    if (loose.length) appendText(user, loose.join("\n"), true);
+    if (kept.length) user.userInputMessageContext.toolResults = kept;
+    else {
+      delete user.userInputMessageContext.toolResults;
+      if (!Object.keys(user.userInputMessageContext).length) delete user.userInputMessageContext;
+    }
+  }
+}
+const clipText = (text: string, max: number) =>
+  text.length > max ? text.slice(0, max) + ` … [${text.length - max} more chars]` : text;
 
 export interface WireEvent {
   headers: Record<string, string>;
