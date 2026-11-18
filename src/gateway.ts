@@ -842,7 +842,7 @@ export class Gateway extends DurableObject<Env> {
       if (s.responseCacheSeconds) {
         // Identical resend (retry after a dropped stream, duplicate background call): replay
         // the stored answer, or wait for the identical request that is still running.
-        const key = await responseKey(prepared.payload);
+        const key = await responseKey(prepared.payload, prepared.stopSequences);
         const hit = this.cache.get(key) ?? (await this.cache.wait(key));
         trace.mark("cache", hit ? "done" : "skip", hit ? "hit" : "miss");
         if (hit) return replay(restore(hit), "cache_hit", { "x-gateway-cache": "hit" });
@@ -853,6 +853,7 @@ export class Gateway extends DurableObject<Env> {
       if (abort.signal.aborted) throw asError(new Error("aborted"));
       const kiroResult = new Completion(prepared.estimatedInput);
       kiroResult.toolNames = prepared.toolNames;
+      kiroResult.stopSequences = prepared.stopSequences;
       result = kiroResult;
       const arrived = upstream(kiroHost(s));
       const response = await this.kiro(prepared.payload, s, abort.signal);

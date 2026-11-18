@@ -9,7 +9,13 @@ export type ApiMode = "openai" | "anthropic";
 const anthropicStop = (r: Completion) =>
   r.stopReason ?? (r.tools.length ? "tool_use" : "end_turn");
 const openaiFinish = (r: Completion) =>
-  r.stopReason === "max_tokens" ? "length" : r.tools.length ? "tool_calls" : "stop";
+  r.stopReason === "max_tokens"
+    ? "length"
+    : r.stopReason === "stop_sequence"
+      ? "stop"
+      : r.tools.length
+        ? "tool_calls"
+        : "stop";
 export class Formatter {
   mode: ApiMode;
   id: string;
@@ -125,7 +131,7 @@ export class Formatter {
         type: "message_delta",
         delta: {
           stop_reason: anthropicStop(result),
-          stop_sequence: null,
+          stop_sequence: result.stopSequence ?? null,
         },
         usage: {
           input_tokens: result.inputTokens,
@@ -186,7 +192,7 @@ export class Formatter {
         })),
       ],
       stop_reason: anthropicStop(result),
-      stop_sequence: null,
+      stop_sequence: result.stopSequence ?? null,
       usage: {
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
@@ -229,6 +235,8 @@ export async function consume(
       }
     }
     decoder.finish();
+    const held = result.flush();
+    if (emit && held) await emit({ text: held });
     result.validateEnd();
   } finally {
     await reader.cancel().catch(() => {});

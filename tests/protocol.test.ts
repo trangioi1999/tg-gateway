@@ -117,9 +117,11 @@ test("validates dangling tools, unsupported inputs and models", () => {
     ).ignored,
     ["thinking", "temperature"],
   );
+  assert.deepEqual(prepare({ ...request, stop: "END" }, "openai", defaults).stopSequences, ["END"]);
+  assert.deepEqual(prepare({ ...request, stop_sequences: ["</a>", "</a>"] }, "anthropic", defaults).stopSequences, ["</a>"]);
   assert.throws(
-    () => prepare({ ...request, stop: ["END"] }, "openai", defaults),
-    /stop is not supported/,
+    () => prepare({ ...request, stop_sequences: [""] }, "anthropic", defaults),
+    /Stop sequences/,
   );
   assert.throws(() =>
     prepare(
@@ -495,4 +497,44 @@ test("non-text blocks inside a tool result become a note", () => {
   );
   const r = (p.payload as any).conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults[0];
   assert.equal(r.content[0].text, "png:\n[image omitted: the Kiro route accepts text only]");
+});
+
+test("stop sequences: the gateway cuts Kiro's text at the first match, across chunks", async () => {
+  const text = (content: string) => frame("assistantResponseEvent", { content });
+  const frames = [text("<block>no"), text("</bl"), text("ock> and more"), frame("meteringEvent", { usage: 0.01 })];
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        frames.forEach((f) => controller.enqueue(f));
+        controller.close();
+      },
+    }),
+  );
+  const c = new Completion(10);
+  c.stopSequences = ["</block>", "STOP"];
+  const sent: string[] = [];
+  await consume(response, undefined, c, async (d) => {
+    if (d.text) sent.push(d.text);
+  });
+  assert.equal(c.text, "<block>no");
+  assert.equal(sent.join(""), "<block>no", "nothing past the stop sequence reaches the client");
+  assert.equal(c.stopReason, "stop_sequence");
+  assert.equal(c.stopSequence, "</block>");
+  assert.equal(c.reportedCredits, 0.01, "metering after the cut is still read");
+  const anthropic = new Formatter("anthropic", "msg_1", "m").json(c) as Record<string, any>;
+  assert.equal(anthropic.stop_reason, "stop_sequence");
+  assert.equal(anthropic.stop_sequence, "</block>");
+  assert.equal((new Formatter("openai", "c", "m").json(c) as Record<string, any>).choices[0].finish_reason, "stop");
+  // No match: held-back text is flushed at the end.
+  const plain = new Completion(0);
+  plain.stopSequences = ["</block>"];
+  const out: string[] = [];
+  await consume(
+    new Response(new ReadableStream({ start(ctl) { ctl.enqueue(text("ends with </bl")); ctl.close(); } })),
+    undefined,
+    plain,
+    async (d) => { if (d.text) out.push(d.text); },
+  );
+  assert.equal(out.join(""), "ends with </bl");
+  assert.equal(plain.stopReason, undefined);
 });

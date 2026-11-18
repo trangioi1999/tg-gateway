@@ -167,6 +167,9 @@ export default function RequestDialog({
             <>
               {tab === "overview" && (
                 <>
+                  {r.status === 0 && (
+                    <LiveLog text={live} bytes={liveBytes} running />
+                  )}
                   <div className="kv">
                     {[
                       [
@@ -197,14 +200,14 @@ export default function RequestDialog({
                       </div>
                     ))}
                   </div>
+                  {r.status !== 0 && live && (
+                    <LiveLog text={live} bytes={liveBytes} running={false} />
+                  )}
                   <Stepper
                     steps={data.steps}
                     started={r.started}
                     provider={r.provider}
                   />
-                  {(r.status === 0 || live) && (
-                    <LiveLog text={live} bytes={liveBytes} running={r.status === 0} />
-                  )}
                 </>
               )}
               {(tab === "request" || tab === "response") && (
