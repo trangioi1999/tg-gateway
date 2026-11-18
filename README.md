@@ -11,7 +11,9 @@ Gateway TypeScript chạy trực tiếp trên **Cloudflare Workers**, có dashbo
 - Console web (React + TypeScript + Vite, trong `web/`) gồm các màn hình:
   - **Đăng nhập**.
   - **Tổng quan**: tổng request, thành công/lỗi/đang chạy, token input/output, độ trễ, thống kê model; xem theo ngày/tuần/tháng và theo nhà cung cấp.
-  - **Lịch sử request**: phân trang, lọc, CSV; bấm một dòng để mở dialog chi tiết gồm nguồn gọi, các bước xử lý, payload/response (nếu đã bật capture) và lỗi.
+  - **Lịch sử request**: phân trang, lọc, CSV, cột nhà cung cấp; bấm một dòng để mở dialog chi tiết gồm nguồn gọi, các bước xử lý, payload/response (nếu đã bật capture) và lỗi. Payload/response hiển thị đã định dạng sẵn (JSON thụt lề kể cả khi bị cắt ở 64 KB, stream SSE được ghép lại thành message cuối); nút "Gốc" xem bytes nguyên bản.
+  - **Request đang chạy**: dialog tự cập nhật mỗi giây, hiện bước đang chạy và **output trực tiếp** (text, thinking, tool call) như log của một pipeline CI. Output này chỉ nằm trong bộ nhớ khi request còn chạy, không lưu vào DB. Nút **Dừng** (trong dialog hoặc ■ trên dòng của bảng) cắt request: client nhận lỗi `cancelled` kèm `x-should-retry: false`, log ghi 499 `cancelled`.
+  - **Phiên bản web**: góc dưới sidebar hiện `v<version>` (ví dụ `v0.1.0`, lấy từ `package.json`); rê chuột vào để xem commit và giờ build. Khi bản deploy mới hơn tab đang mở (kiểm tra `/version.json` mỗi 5 phút và khi quay lại tab), sidebar hiện "Có bản mới · Tải lại". Dùng để biết chắc Worker đã được deploy bản mới chưa.
   - **Cài đặt** (8 mục).
 - Thống kê theo giờ được giữ vĩnh viễn: xóa log/lịch sử request không làm mất số tổng.
 - Credit thật của nhà cung cấp (cache 5 phút): Kiro (`getUsageLimits`), OpenRouter (số dư), Claude API (chi phí tháng tính từ usage).
@@ -289,6 +291,7 @@ Các file chính:
 - `src/dashboard/api.ts`: các handler `/api/*` của console (overview, lịch sử, chi tiết, export, providers); `src/dashboard/period.ts`: khoảng ngày/tuần/tháng theo múi giờ; `src/dashboard/contract.ts`: kiểu dữ liệu dùng chung với `web/`.
 - `src/db/schema.ts`: schema SQLite và migration; `src/db/stats.ts`: bảng thống kê theo giờ `stats_hourly`.
 - `src/trace.ts`: các bước xử lý của request và payload capture.
+- `src/stream-text.ts`: đọc lại SSE/JSON đã gửi cho client thành text dễ đọc (output trực tiếp, view "Đã ghép"); dùng chung cho Worker và `web/`.
 - `src/upstream/kiro.ts`: gọi Kiro runtime; `src/upstream/quota.ts`: quota/credit của các nhà cung cấp.
 - `src/protocol.ts` (chuyển đổi + binary parser), `src/kiro-auth.ts` (refresh + vault), `src/stream.ts` (SSE/JSON), `src/security.ts` (session/crypto).
 - `web/`: console React, build ra `web/dist` và được Worker phục vụ qua `assets.directory`.

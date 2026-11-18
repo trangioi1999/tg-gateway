@@ -11,12 +11,15 @@ import Button from "./Button";
 import { useRoute } from "../router";
 import { api } from "../api/client";
 import { useState } from "react";
+import { BUILD, buildDetail, buildLabel } from "../build";
+import { useNewBuild } from "../hooks/useNewBuild";
 export default function Sidebar() {
   const { path, go } = useRoute();
   const provider = new URLSearchParams(location.search).get("provider");
   const providers = useApi<ProvidersResponse>(providersUrl());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const next = useNewBuild();
   return (
     <aside className="side">
       <div className="brand">
@@ -75,6 +78,13 @@ export default function Sidebar() {
         {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
       </nav>
       <div className="side-foot">
+        {next && (
+          <div className="update" role="status">
+            <span title={buildDetail(next)}>Có bản mới {next.version !== BUILD.version ? buildLabel(next) : ""}</span>
+            <button className="btn" onClick={() => location.reload()}>Tải lại</button>
+          </div>
+        )}
+        <small className="build" title={buildDetail(BUILD)}>{buildLabel(BUILD)}</small>
         <Button loading={busy}
           className="btn full"
           onClick={() => {

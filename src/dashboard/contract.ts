@@ -30,7 +30,9 @@ export type StepState = "done" | "skip" | "active" | "error" | "pending";
 /** at/dur in ms from request start; null = not reached. */
 export interface Step { key: StepKey; state: StepState; at: number | null; dur: number | null; detail: string }
 export interface Payload { request: string | null; response: string | null; truncated: boolean }
-export interface RequestDetail { request: RequestRow; steps: Step[]; payload: Payload | null }
+/** Readable output of a running request: text after `from`, `total` chars produced so far. */
+export interface LiveText { from: number; text: string; total: number; bytes: number }
+export interface RequestDetail { request: RequestRow; steps: Step[]; payload: Payload | null; live: LiveText | null }
 export interface ProviderQuota {
   id: ProviderId; configured: boolean; ok: boolean; error?: string;
   plan?: string; used?: number; limit?: number; unit: "credit" | "usd";

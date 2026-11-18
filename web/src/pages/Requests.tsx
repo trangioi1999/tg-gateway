@@ -19,6 +19,7 @@ import PeriodBar from "../components/PeriodBar";
 import RequestTable from "../components/RequestTable";
 import RequestDialog from "../components/RequestDialog";
 import ConfirmClear from "../components/ConfirmClear";
+import { stopRequest } from "../api/requests";
 export default function Requests({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
       period: "week",
@@ -192,7 +193,15 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         </div>
 
         {error && <ErrorCard message={error} onRetry={() => refresh(n => n + 1)} />}
-        <div className={loading && data ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} /></div>
+        <div className={loading && data ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} onStop={async (id) => {
+          try {
+            await stopRequest(id);
+            setToast("Đã dừng request.");
+          } catch (e) {
+            setToast(e instanceof Error ? e.message : "Không thể dừng request.");
+          }
+          refresh((n) => n + 1);
+        }} /></div>
         <div className="pager">
           <span>
             {data?.total

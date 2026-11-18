@@ -10,6 +10,9 @@ import { fmtClock, fmtCompact, fmtMs } from "../lib/format";
 import Seg from "./Seg";
 import Stepper from "./Stepper";
 import CodeBox from "./CodeBox";
+import LiveLog from "./LiveLog";
+import Button from "./Button";
+import { stopRequest } from "../api/requests";
 type Tab = "overview" | "request" | "response" | "error";
 const hints: Record<string, string> = {
   kiro_http_530: "Đổi API region trong Cài đặt → Kiro.",
@@ -31,7 +34,13 @@ export default function RequestDialog({
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [tab, setTab] = useState<Tab>("overview"),
-    [revision, retry] = useState(0);
+    [revision, retry] = useState(0),
+    [live, setLive] = useState(""),
+    [liveBytes, setLiveBytes] = useState(0),
+    [stopping, setStopping] = useState(false),
+    [stopError, setStopError] = useState("");
+  /** Characters of live output already received (sent as `since`). */
+  const liveTotal = useRef(0);
   useEffect(() => {
     const d = ref.current;
     d?.showModal();
@@ -48,17 +57,25 @@ export default function RequestDialog({
       if (first) setLoading(true);
       try {
         const result = await api<RequestDetail>(
-          "/api/requests/" + encodeURIComponent(id),
+          "/api/requests/" + encodeURIComponent(id) + "?since=" + liveTotal.current,
           { signal: controller.signal },
         );
         if (stopped) return;
         setData(result);
+        const l = result.live;
+        if (l) {
+          // A gap means the start scrolled out of the server's buffer.
+          const gap = l.from > liveTotal.current;
+          if (l.text || gap) setLive((prev) => (gap ? "…" : prev) + l.text);
+          liveTotal.current = l.total;
+          setLiveBytes(l.bytes);
+        }
         setError("");
         if (first) {
           setTab(result.request.status >= 400 ? "error" : "overview");
           first = false;
         }
-        if (result.request.status === 0) timer = setTimeout(load, 2000);
+        if (result.request.status === 0) timer = setTimeout(load, 1000);
       } catch (e) {
         if (!stopped)
           setError(e instanceof Error ? e.message : "Không thể tải request.");
@@ -91,7 +108,7 @@ export default function RequestDialog({
         <div className="sh-head">
           <div>
             <h2 id="request-title" ref={titleRef} tabIndex={-1}>
-              {r ? `${clientLabel(r.client)} → ${r.model}` : "Chi tiết request"}
+              {r ? `${clientLabel(r.client)} → ${r.model || "—"}` : "Chi tiết request"}
             </h2>
             {r?.status === 0 && !error && <span className="updating" role="status">Đang cập nhật</span>}
             {r && (
@@ -103,9 +120,31 @@ export default function RequestDialog({
               </div>
             )}
           </div>
-          <button className="close" aria-label="Đóng" onClick={close}>
-            ✕
-          </button>
+          <div className="sh-acts">
+            {r?.status === 0 && (
+              <Button
+                className="btn danger"
+                loading={stopping}
+                onClick={async () => {
+                  setStopping(true);
+                  setStopError("");
+                  try {
+                    await stopRequest(id);
+                    retry((n) => n + 1);
+                  } catch (e) {
+                    setStopError(e instanceof Error ? e.message : "Không thể dừng request.");
+                  } finally {
+                    setStopping(false);
+                  }
+                }}
+              >
+                ■ Dừng
+              </Button>
+            )}
+            <button className="close" aria-label="Đóng" onClick={close}>
+              ✕
+            </button>
+          </div>
         </div>
         <div className="sh-tabs">
           <Seg
@@ -122,6 +161,7 @@ export default function RequestDialog({
         </div>
         <div className={`sh-body section-enter${loading && data ? " refetching" : ""}`} key={tab}>
           {error && <ErrorCard message={error} onRetry={() => retry(n => n + 1)} />}
+          {stopError && <p className="error" role="alert">{stopError}</p>}
           {!data && !error && <><Skeleton className="skeleton-info" rows={8} /><Skeleton className="skeleton-stepper" rows={4} /></>}
           {data && r && (
             <>
@@ -162,6 +202,9 @@ export default function RequestDialog({
                     started={r.started}
                     provider={r.provider}
                   />
+                  {(r.status === 0 || live) && (
+                    <LiveLog text={live} bytes={liveBytes} running={r.status === 0} />
+                  )}
                 </>
               )}
               {(tab === "request" || tab === "response") && (

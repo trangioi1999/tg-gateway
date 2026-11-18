@@ -140,7 +140,7 @@ function withoutSteps(row: Record<string, SqlStorageValue>): RequestRow {
   return rest as unknown as RequestRow;
 }
 /** `GET /api/requests/:id`: the row, its trace (live while in flight) and captured payload. */
-export function detail(gw: Gateway, id: string) {
+export function detail(gw: Gateway, id: string, url?: URL) {
   const row = gw.sql
     .exec<Record<string, SqlStorageValue>>("SELECT * FROM requests WHERE id=?", id)
     .toArray()[0];
@@ -154,10 +154,14 @@ export function detail(gw: Gateway, id: string) {
       id,
     )
     .toArray()[0];
+  // `since`: characters of live output the viewer already has.
+  const since = Math.max(0, Number(url?.searchParams.get("since")) || 0);
+  const running = gw.running.get(id);
   const body: RequestDetail = {
     request: withoutSteps(row),
     steps,
     payload: saved ? { request: saved.request, response: saved.response, truncated: Boolean(saved.truncated) } : null,
+    live: running ? { ...running.live.since(since), bytes: running.live.bytes } : null,
   };
   return json(body);
 }

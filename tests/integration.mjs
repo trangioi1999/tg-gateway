@@ -698,3 +698,49 @@ test("provider quotas: healthy answers are cached, failures and sign-in changes 
     await mf.dispose();
   }
 });
+
+test("running request: live output in the detail view, stop from the dashboard", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0 }) })).status, 200);
+    const slow = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "slow live" }] }),
+    });
+    assert.equal(slow.status, 200);
+    const id = slow.headers.get("x-request-id");
+    // The first "." arrives right away; the next ones every 3 s.
+    const reader = slow.body.getReader();
+    await reader.read();
+    let detail;
+    for (let i = 0; i < 20; i++) {
+      detail = await (await send(`/api/requests/${id}?since=0`)).json();
+      if (detail.live?.text) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(detail.request.status, 0);
+    assert.equal(detail.live.text, ".");
+    assert.equal(detail.live.from, 0);
+    assert.ok(detail.live.bytes > 0);
+    // Only what is new since the viewer's last read.
+    assert.equal((await (await send(`/api/requests/${id}?since=1`)).json()).live.text, "");
+    assert.equal((await send(`/api/requests/${id}/cancel`, { method: "POST", headers: { Origin: "https://evil.test" } })).status, 403);
+    assert.equal((await send(`/api/requests/${id}/cancel`, { method: "POST" })).status, 200);
+    let rest = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      rest += new TextDecoder().decode(value);
+    }
+    assert.match(rest, /cancelled/);
+    const after = await (await send(`/api/requests/${id}`)).json();
+    assert.equal(after.request.status, 499);
+    assert.equal(after.request.error_code, "cancelled");
+    assert.equal(after.live, null);
+    assert.equal((await send(`/api/requests/${id}/cancel`, { method: "POST" })).status, 409);
+  } finally {
+    await mf.dispose();
+  }
+});
