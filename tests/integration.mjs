@@ -808,6 +808,19 @@ test("session IDs and context breakdown: Claude Code session, Kiro conversationI
     ids = await conversationIds();
     assert.equal(ids[2], ids[3], "stable: same thread, same conversationId");
     assert.notEqual(ids[2], ids[0]);
+    // Only the allowed tool definitions reach Kiro; the dashboard lists every tool's size.
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0, toolAllowlist: ["Read", "mcp__*"] }) })).status, 200);
+    const tool = (name) => ({ name, description: "does " + name, input_schema: { type: "object", properties: {} } });
+    const withTools = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, tools: [tool("Read"), tool("Bash"), tool("mcp__docs__search")], messages: [{ role: "user", content: "tools please" }] }),
+    });
+    assert.equal(withTools.status, 200);
+    const last = (await calls()).at(-1);
+    assert.deepEqual(last.conversationState.currentMessage.userInputMessage.userInputMessageContext.tools.map((t) => t.toolSpecification.name), ["Read", "mcp__docs__search"]);
+    const row = (await (await send("/api/requests")).json()).items[0];
+    assert.match(row.optimizations, /tools_dropped:1/);
+    assert.deepEqual(JSON.parse(row.context).toolList.filter((t) => t.dropped).map((t) => t.name), ["Bash"]);
   } finally {
     await mf.dispose();
   }

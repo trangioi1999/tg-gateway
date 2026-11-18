@@ -832,6 +832,11 @@ export class Gateway extends DurableObject<Env> {
         return replay(local, "local_reply", { "x-gateway-local": "max_tokens_1" });
       }
       const original = prepared.conversation.turns;
+      const dropped = prepared.toolSizes.filter((t) => t.dropped);
+      if (dropped.length) {
+        optimizations.push(`tools_dropped:${dropped.length}`);
+        savedTokens += dropped.reduce((n, t) => n + t.tokens, 0);
+      }
       if (s.clearToolResults) {
         const trimmed = clearToolResults(prepared.conversation, {
           triggerTokens: s.clearTriggerTokens,
@@ -853,7 +858,7 @@ export class Gateway extends DurableObject<Env> {
         }
       }
       const applied = optimizations.filter(
-        (o) => o.startsWith("cleared:") || o.startsWith("compact") || o === "auto_mode_model",
+        (o) => o.startsWith("cleared:") || o.startsWith("compact") || o === "auto_mode_model" || o.startsWith("tools_dropped:"),
       );
       if (applied.length) trace.mark("optimize", "done", applied.join(" · "));
       else trace.mark("optimize", "skip", "below_threshold");
@@ -866,7 +871,12 @@ export class Gateway extends DurableObject<Env> {
       this.sql.exec(
         "UPDATE requests SET kiro_conversation=?,context=? WHERE id=?",
         prepared.conversation.id,
-        JSON.stringify({ ...contextBreakdown(prepared.conversation), total: prepared.estimatedInput, saved: savedTokens }),
+        JSON.stringify({
+          ...contextBreakdown(prepared.conversation),
+          total: prepared.estimatedInput,
+          saved: savedTokens,
+          toolList: prepared.toolSizes.slice(0, 60),
+        }),
         id,
       );
       if (s.responseCacheSeconds) {

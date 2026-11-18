@@ -188,6 +188,7 @@ ghi rõ cơ chế nào đã chạy và số token tiết kiệm (ước tính); 
 | Compact | **tắt** | Khi prompt vẫn vượt 120k token, tóm tắt phần đầu bằng `compactModel` (mặc định `claude-haiku-4.5`), giữ nguyên ~30k token cuối. Bản tóm tắt được dùng lại cho các lượt sau, chỉ tóm tắt thêm khi cần. Mỗi lần tóm tắt hiện thành một dòng `internal:compact` trong lịch sử. |
 | Cache câu trả lời | 300 s | Request giống hệt từng byte được phát lại từ bộ nhớ (header `x-gateway-cache: hit`, 0 credit). Request giống hệt đang chạy song song chỉ gọi Kiro một lần. |
 | Model cho bộ phân loại auto mode | `claude-sonnet-5.5` | Ở auto mode, Claude Code gửi thêm một request kiểm tra an toàn (system prompt dài kèm transcript) cho mỗi tool call, bằng model chính. Gateway nhận ra request này và gửi lên Kiro bằng model đã chọn (chỉ khi model đó đã bật trong danh sách model). Để trống để giữ model của client. Lịch sử ghi tag `auto→model rẻ`. |
+| Chỉ gửi / không gửi các tool | trống (gửi tất cả) | Định nghĩa tool được gửi lại ở **mọi** request (riêng tool có sẵn của Claude Code khoảng 25k token). Liệt kê tên tool cần giữ, ví dụ `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob`, `Agent`; `*` là ký tự đại diện (`mcp__github__*`). Tool bị bỏ thì model không thấy và không gọi được; các lần gọi cũ của nó được chuyển thành text. Dialog chi tiết request liệt kê số token của từng tool. |
 
 Riêng tư: cache câu trả lời chỉ nằm trong bộ nhớ Durable Object (tối đa 32 mục, mất khi khởi
 động lại). Compact lưu **bản tóm tắt nội dung hội thoại** trong SQLite của Durable Object, xóa

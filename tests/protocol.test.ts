@@ -538,3 +538,37 @@ test("stop sequences: the gateway cuts Kiro's text at the first match, across ch
   assert.equal(out.join(""), "ends with </bl");
   assert.equal(plain.stopReason, undefined);
 });
+
+import { toolAllowed } from "../src/protocol.ts";
+test("tool allow/deny lists: wildcards, deny wins, dropped tools are not sent and old calls become text", () => {
+  assert.equal(toolAllowed("Read"), true);
+  assert.equal(toolAllowed("Read", ["Read", "Bash"]), true);
+  assert.equal(toolAllowed("Write", ["Read"]), false);
+  assert.equal(toolAllowed("mcp__github__get", ["mcp__github__*"]), true);
+  assert.equal(toolAllowed("mcp__github__get", ["mcp__*"], ["mcp__github__*"]), false);
+  assert.equal(toolAllowed("mcpXgithub", ["mcp.github"]), false, "dots are literal");
+  const tool = (name: string, description = "d") => ({ name, description, input_schema: { type: "object", properties: {} } });
+  const p = prepare(
+    {
+      model: "claude-sonnet-4.5",
+      tools: [tool("Read"), tool("NotebookEdit", "x".repeat(4000)), tool("Bash")],
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: [{ type: "tool_use", id: "n1", name: "NotebookEdit", input: { cell: 1 } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "n1", content: "ok" }] },
+      ],
+    },
+    "anthropic",
+    { ...defaults, toolDenylist: ["NotebookEdit"] },
+  );
+  const sent = p.payload.conversationState.currentMessage.userInputMessage.userInputMessageContext.tools.map((t: any) => t.toolSpecification.name);
+  assert.deepEqual(sent, ["Read", "Bash"]);
+  assert.equal(p.toolSizes[0].name, "NotebookEdit");
+  assert.equal(p.toolSizes[0].dropped, true);
+  assert.ok(p.toolSizes[0].tokens > 900);
+  // The earlier call to the dropped tool is kept as text, so Kiro sees no undeclared tool.
+  assert.match(JSON.stringify(p.payload), /Called tool NotebookEdit/);
+  assert.equal(JSON.stringify(p.payload).includes('"toolUseId":"n1"'), false);
+  assert.throws(() => validateSettings({ ...defaults, toolAllowlist: ["bad name!"] }));
+  assert.deepEqual(validateSettings({ ...defaults, toolAllowlist: [" Read ", "", "Read"] }).toolAllowlist, ["Read"]);
+});

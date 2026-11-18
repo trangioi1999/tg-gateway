@@ -74,6 +74,20 @@ export function rebuild(p: Prepared) {
   p.payload = buildPayload(p.conversation);
   p.estimatedInput = estimateTokens(JSON.stringify(p.payload));
 }
+/** `pattern` with `*` wildcards, matched against a whole tool name. */
+const toolPattern = (pattern: string) =>
+  new RegExp("^" + pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\/]/g, "\\$&")).join(".*") + "$");
+/** Whether Settings → tool allow/deny lists let this tool's definition be sent to Kiro. */
+export function toolAllowed(name: string, allow: string[] = [], deny: string[] = []): boolean {
+  if (deny.some((p) => toolPattern(p).test(name))) return false;
+  return !allow.length || allow.some((p) => toolPattern(p).test(name));
+}
+/** Estimated tokens of one client tool definition; `dropped` = not sent (Settings lists). */
+export interface ToolSize {
+  name: string;
+  tokens: number;
+  dropped?: boolean;
+}
 export interface Prepared {
   model: string;
   conversation: Conversation;
@@ -87,6 +101,8 @@ export interface Prepared {
   stopSequences: string[];
   /** Kiro tool name → client tool name, for tools renamed to fit Kiro's naming rules. */
   toolNames: Map<string, string>;
+  /** Every tool the client sent, largest first, with those left out by the settings. */
+  toolSizes: ToolSize[];
   payload: Obj;
   estimatedInput: number;
 }
@@ -201,6 +217,7 @@ export function prepare(
   const toolNames = new Map<string, string>();
   const longDocs: string[] = [];
   const kiroTools: Obj[] = [];
+  const toolSizes: ToolSize[] = [];
   for (const t of tools) {
     if (!object(t)) invalid("Invalid tool.");
     const f = mode === "openai" ? t.function : t;
@@ -212,7 +229,14 @@ export function prepare(
     if (schema != null && !object(schema))
       invalid(`Tool schema must be an object (tool ${f.name.slice(0, 80)}).`);
     // The same tool listed twice (e.g. by two MCP configs): keep the first definition.
-    if (names.has(f.name)) continue;
+    if (names.has(f.name) || toolSizes.some((t) => t.name === f.name)) continue;
+    const tokens = estimateTokens(JSON.stringify({ name: f.name, description: f.description ?? "", schema: schema ?? {} }));
+    // Left out by Settings: Kiro never sees it; earlier calls to it become text (pairTools).
+    if (!toolAllowed(f.name, settings.toolAllowlist, settings.toolDenylist)) {
+      toolSizes.push({ name: f.name, tokens, dropped: true });
+      continue;
+    }
+    toolSizes.push({ name: f.name, tokens });
     let kiroName = kiroToolName(f.name);
     for (let n = 2; toolNames.has(kiroName); n++)
       kiroName = kiroToolName(f.name).slice(0, 60) + "_" + n;
@@ -373,6 +397,7 @@ export function prepare(
     maxTokens: body.max_tokens ?? body.max_completion_tokens,
     stopSequences,
     toolNames: new Map([...toolNames].filter(([kiro, client]) => kiro !== client)),
+    toolSizes: toolSizes.sort((a, b) => b.tokens - a.tokens),
     payload,
     estimatedInput: estimateTokens(JSON.stringify(payload)),
   };

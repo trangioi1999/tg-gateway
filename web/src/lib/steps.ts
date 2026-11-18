@@ -16,7 +16,8 @@ export function presentStep(step: Step): Step {
     };
     detail = detail.split(" · ").map(code => {
       const cleared = /^cleared:(\d+)$/.exec(code);
-      return cleared ? `Xóa ${cleared[1]} tool result cũ` : labels[code] ?? code;
+      const tools = /^tools_dropped:(\d+)$/.exec(code);
+      return cleared ? `Xóa ${cleared[1]} tool result cũ` : tools ? `Không gửi ${tools[1]} tool` : labels[code] ?? code;
     }).join(" · ");
   } else if (step.key === "cache") {
     if (detail === "miss") { detail = "Không có trong cache"; state = "skip"; }

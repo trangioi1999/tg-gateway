@@ -45,6 +45,13 @@ export interface Settings {
    * one per request, to measure whether Kiro charges less. Off by default.
    */
   stableConversationId: boolean;
+  /**
+   * Kiro route: send only these tool definitions (names, `*` wildcard); empty = all.
+   * Claude Code's built-in tools alone are ~25k tokens on every request.
+   */
+  toolAllowlist: string[];
+  /** Kiro route: never send these tool definitions (names, `*` wildcard). */
+  toolDenylist: string[];
   /** Replay identical completed requests from memory for this long (0 = off). */
   responseCacheSeconds: number;
   /** Name shown in the console header. */
@@ -76,6 +83,8 @@ export const defaults: Settings = {
   compactModel: "claude-haiku-4.5",
   autoModeModel: "claude-sonnet-5.5",
   stableConversationId: false,
+  toolAllowlist: [],
+  toolDenylist: [],
   responseCacheSeconds: 300,
   displayName: "Admin",
   capturePayloads: "off",
@@ -176,5 +185,15 @@ export function validateSettings(raw: unknown): Settings {
     throw new HttpError(400, "invalid_settings", "compactModel must be a Kiro model ID (no provider prefix).");
   if (typeof s.autoModeModel !== "string" || !/^[a-zA-Z0-9._:-]{0,160}$/.test(s.autoModeModel))
     throw new HttpError(400, "invalid_settings", "autoModeModel must be empty or a Kiro model ID (no provider prefix).");
-  return { ...s, models: [...new Set(s.models)] };
+  const toolList = (key: "toolAllowlist" | "toolDenylist") => {
+    const list = s[key];
+    if (
+      !Array.isArray(list) ||
+      list.length > 200 ||
+      list.some((t) => typeof t !== "string" || (t.trim() !== "" && !/^[\w.:*/-]{1,256}$/.test(t.trim())))
+    )
+      throw new HttpError(400, "invalid_settings", `${key}: up to 200 tool names (letters, digits, _ . : - / and * as wildcard).`);
+    return [...new Set(list.map((t) => t.trim()).filter(Boolean))];
+  };
+  return { ...s, models: [...new Set(s.models)], toolAllowlist: toolList("toolAllowlist"), toolDenylist: toolList("toolDenylist") };
 }
