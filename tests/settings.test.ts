@@ -25,3 +25,17 @@ test("rejects bad retention and budget", () => {
 test("still rejects unknown keys", () => {
   assert.throws(() => validateSettings({ ...defaults, nope: 1 }));
 });
+
+import { detectAgent } from "../src/clients.ts";
+test("detectAgent: markers, Claude Code's own prompts, OpenAI system messages", () => {
+  const billing = { type: "text", text: "x-anthropic-billing-header: cc_version=2.1.280;" };
+  const sys = (text: string) => ({ system: [billing, { type: "text", text }], messages: [] });
+  assert.equal(detectAgent(sys("You are a coder.\n[agent: Coder]\nImplement tasks.")), "coder");
+  assert.equal(detectAgent(sys("You are a security monitor for autonomous AI coding agents.\n...")), "auto-mode");
+  assert.equal(detectAgent(sys("You are Claude Code, Anthropic's official CLI for Claude.")), "main");
+  assert.equal(detectAgent(sys("You are an agent for Claude Code, Anthropic's official CLI for Claude.")), "subagent");
+  assert.equal(detectAgent({ system: "Be brief.", messages: [] }), null);
+  assert.equal(detectAgent({ messages: [{ role: "system", content: "[agent:leader] plan the work" }] }), "leader");
+  assert.equal(detectAgent({ messages: [{ role: "user", content: "[agent:fake]" }] }), null, "only system prompts count");
+  assert.equal(detectAgent(null), null);
+});

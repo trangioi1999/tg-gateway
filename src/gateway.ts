@@ -38,7 +38,7 @@ import {
 } from "./context.ts";
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
-import { detectClient } from "./clients.ts";
+import { detectAgent, detectClient } from "./clients.ts";
 import type { ProvidersResponse } from "./dashboard/contract.ts";
 import { ResponseCache, responseKey, snapshot, restore } from "./cache.ts";
 import {
@@ -527,9 +527,15 @@ export class Gateway extends DurableObject<Env> {
       const text = await readText(request);
       capture?.setRequest(text);
       const raw = parseJson(text);
-      // Requested model, so rejected requests still show it (routes overwrite it below).
-      if (object(raw) && typeof raw.model === "string")
-        this.sql.exec("UPDATE requests SET model=? WHERE id=?", raw.model.slice(0, 160), id);
+      // Requested model, so rejected requests still show it (routes overwrite it below),
+      // and which agent (main session, subagent, `[agent:name]`) sent it.
+      if (object(raw))
+        this.sql.exec(
+          "UPDATE requests SET model=?,agent=? WHERE id=?",
+          typeof raw.model === "string" ? raw.model.slice(0, 160) : "",
+          detectAgent(raw),
+          id,
+        );
       const route = object(raw) ? routeModel(raw.model, s) : null;
       if (route) trace.mark("optimize", "skip", "not_kiro");
       if (route?.provider.native) {

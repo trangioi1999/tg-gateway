@@ -515,3 +515,5 @@ dialog.dialog-closing::backdrop{animation:fade-out 160ms ease-in forwards}
 .side-foot .build{font-size:11px;color:var(--faint);text-align:center}
 .side-foot .update{display:grid;gap:6px;font-size:12px;color:var(--accent-ink);background:var(--accent-soft);border-radius:var(--r-in);padding:8px 10px}
 .kv div:last-child:nth-child(odd){grid-column:1/-1}
+.request-table td small.agent-tag{margin-left:22px}
+.request-table td small.agent-tag.named{color:var(--accent-ink);font-weight:600}

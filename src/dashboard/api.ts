@@ -99,8 +99,8 @@ function filter(url: URL) {
   if (q) {
     if (q.length > 200) throw new HttpError(400, "invalid_filter", "Search text is too long.");
     const like = "%" + q.replace(/[\\%_]/g, (c) => "\\" + c) + "%";
-    clause += ` AND (${["client", "model", "ip", "error_code"].map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ")})`;
-    args.push(like, like, like, like);
+    clause += ` AND (${["client", "model", "ip", "error_code", "agent"].map((c) => `${c} LIKE ? ESCAPE '\\'`).join(" OR ")})`;
+    args.push(like, like, like, like, like);
   }
   return { clause, args, range, provider };
 }
@@ -183,6 +183,7 @@ export function exportCsv(gw: Gateway, url: URL) {
     "id",
     "started",
     "client",
+    "agent",
     "provider",
     "model",
     "status",

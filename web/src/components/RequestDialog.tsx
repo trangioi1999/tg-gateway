@@ -1,5 +1,5 @@
 import Skeleton from "./Skeleton";
-import { requestStatus } from "../lib/requestPresentation";
+import { agentLabel, requestStatus } from "../lib/requestPresentation";
 import ErrorCard from "./ErrorCard";
 import { useDialogClose } from "../hooks/useDialogClose";
 import { useEffect, useRef, useState } from "react";
@@ -176,6 +176,7 @@ export default function RequestDialog({
                         "Máy gọi",
                         `${clientLabel(r.client)} · ${r.user_agent ?? "—"}`,
                       ],
+                      ["Agent", agentLabel(r.agent) || "—"],
                       ["IP nguồn", r.ip ?? "—"],
                       [
                         "Vị trí",

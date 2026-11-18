@@ -740,6 +740,15 @@ test("running request: live output in the detail view, stop from the dashboard",
     assert.equal(after.request.error_code, "cancelled");
     assert.equal(after.live, null);
     assert.equal((await send(`/api/requests/${id}/cancel`, { method: "POST" })).status, 409);
+    // The agent that sent a request is shown in the history (and searchable).
+    const tagged = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, system: "You implement tasks. [agent:coder]", messages: [{ role: "user", content: "hi" }] }),
+    });
+    assert.equal(tagged.status, 200);
+    const found = (await (await send("/api/requests?q=coder")).json()).items;
+    assert.equal(found.length, 1);
+    assert.equal(found[0].agent, "coder");
   } finally {
     await mf.dispose();
   }

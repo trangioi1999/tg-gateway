@@ -23,6 +23,8 @@ export interface RequestRow {
   error_code: string | null; error_message: string | null; optimizations: string; saved_tokens: number;
   streamed: number; ip: string | null; country: string | null; city: string | null; colo: string | null;
   user_agent: string | null; upstream_host: string | null; ttfb: number | null;
+  /** "main", "subagent", "auto-mode" or a `[agent:name]` marker; null if unknown. */
+  agent: string | null;
 }
 export interface RequestList { page: number; pageSize: number; total: number; items: RequestRow[]; summary: Totals; range: Range }
 export type StepKey = "received" | "auth" | "optimize" | "cache" | "local" | "upstream" | "stream" | "done" | "error";
