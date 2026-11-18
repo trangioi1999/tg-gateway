@@ -35,17 +35,26 @@ async function hmac(secret: string, value: string): Promise<string> {
     .replaceAll("/", "_")
     .replaceAll("=", "");
 }
+/**
+ * `generation` is part of the signing key: bumping it (sign-out) revokes every session
+ * issued before, server side, not just the cookie in one browser.
+ */
 export async function makeSession(
   secret: string,
   password: string,
+  generation = 0,
 ): Promise<string> {
   const payload = `${Date.now() + 8 * 3600_000}.${crypto.randomUUID()}`;
-  return `${payload}.${await hmac(secret + (await digest(password)), payload)}`;
+  return `${payload}.${await hmac(sessionKey(secret, await digest(password), generation), payload)}`;
+}
+function sessionKey(secret: string, password: string, generation: number): string {
+  return generation ? `${secret}${password}:${generation}` : secret + password;
 }
 export async function validSession(
   token: string,
   secret: string,
   password: string,
+  generation = 0,
 ): Promise<boolean> {
   const parts = token.split(".");
   if (parts.length !== 3 || !/^\d+$/.test(parts[0])) return false;
@@ -53,7 +62,7 @@ export async function validSession(
   if (expiry < Date.now() || expiry > Date.now() + 8 * 3600_000) return false;
   return equal(
     parts[2],
-    await hmac(secret + (await digest(password)), parts.slice(0, 2).join(".")),
+    await hmac(sessionKey(secret, await digest(password), generation), parts.slice(0, 2).join(".")),
   );
 }
 export function requireOrigin(request: Request): void {
@@ -97,21 +106,29 @@ export async function unseal<T>(secret: string, value: string): Promise<T> {
   );
   return JSON.parse(new TextDecoder().decode(plain)) as T;
 }
-/** Request body as text: requires a JSON content type and at most `limit` bytes. */
+/**
+ * Request body as text: requires a JSON content type and at most `limit` bytes.
+ * `signal` stops a slow upload (idle timeout, request cap, dashboard stop).
+ */
 export async function readText(
   request: Request,
   limit = 1_048_576,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!request.headers.get("content-type")?.includes("application/json"))
     throw new HttpError(415, "invalid_content_type", "Use application/json.");
   if (!request.body)
     throw new HttpError(400, "invalid_json", "JSON body required.");
   const reader = request.body.getReader();
+  if (signal?.aborted) throw signal.reason;
+  const stop = () => void reader.cancel(signal?.reason).catch(() => {});
+  signal?.addEventListener("abort", stop, { once: true });
   let size = 0;
   const chunks: Uint8Array[] = [];
   try {
     for (;;) {
       const { done, value } = await reader.read();
+      if (signal?.aborted) throw signal.reason;
       if (done) break;
       size += value.byteLength;
       if (size > limit) {
@@ -125,6 +142,7 @@ export async function readText(
       chunks.push(value);
     }
   } finally {
+    signal?.removeEventListener("abort", stop);
     reader.releaseLock();
   }
   const buffer = new Uint8Array(size);

@@ -1,5 +1,6 @@
 import { defaults } from "../types.ts";
 import { STATS_TABLE, backfillStats } from "./stats.ts";
+import { PROMPTS_TABLE, backfillPrompts } from "./prompts.ts";
 
 /** Payloads whose request row is gone (retention, history clearing). */
 export const DELETE_ORPHAN_PAYLOADS = "DELETE FROM payloads WHERE id NOT IN (SELECT id FROM requests)";
@@ -85,6 +86,14 @@ export function migrate(storage: DurableObjectStorage): void {
       storage.transactionSync(() => {
         sql.exec(STATS_TABLE);
         backfillStats(sql);
+      });
+    // One-time: first prompt per hour (same marker approach as stats_hourly).
+    const hasPrompts =
+      sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='prompt_hours'").toArray().length > 0;
+    if (!hasPrompts)
+      storage.transactionSync(() => {
+        sql.exec(PROMPTS_TABLE);
+        backfillPrompts(sql);
       });
     sql.exec(
       `INSERT OR IGNORE INTO settings VALUES(1,?)`,

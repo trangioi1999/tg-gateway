@@ -4,6 +4,7 @@ import type { Gateway } from "../gateway.ts";
 import type { OverviewResponse, ProviderQuota, ProvidersResponse, ProviderId, RequestDetail, RequestRow, Step } from "./contract.ts";
 import { parsePeriod, periodRange } from "./period.ts";
 import { totals, grouped } from "../db/stats.ts";
+import { firstPrompt } from "../db/prompts.ts";
 import { fetchKiroUsage, fetchOpenRouterCredits } from "../upstream/quota.ts";
 
 export const json = (
@@ -59,6 +60,8 @@ export function overview(gw: Gateway, url: URL) {
   // parsePeriod already validated tz.
   const tz = Number(url.searchParams.get("tz") ?? 0);
   const monthRange = periodRange("month", ymd(range.from + tz * 60_000), tz);
+  // Always today (viewer's local day), whatever period is being viewed.
+  const today = periodRange("day", ymd(Date.now() + tz * 60_000), tz);
   const body: OverviewResponse = {
     range,
     totals: totals(gw.sql, range.from, range.to, provider),
@@ -72,6 +75,7 @@ export function overview(gw: Gateway, url: URL) {
       .one().n,
     settings: gw.settings(),
     generatedAt: Date.now(),
+    firstPromptToday: firstPrompt(gw.sql, today.from, today.to),
   };
   return json(body);
 }
@@ -203,7 +207,8 @@ export function exportCsv(gw: Gateway, url: URL) {
   ];
   const cell = (value: unknown) => {
     let text = String(value ?? "");
-    if (/^[=+@-]/.test(text)) text = "'" + text;
+    // Leading tab/CR also start a formula in some spreadsheet apps.
+    if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
     return '"' + text.replaceAll('"', '""') + '"';
   };
   return new Response(

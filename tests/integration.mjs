@@ -373,9 +373,14 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
       ov.byProvider.find((p) => p.provider === "anthropic").requests,
     );
     assert.equal((await send("/api/overview?provider=bogus")).status, 400);
+    const stolen = cookie;
     await send("/api/session", { method: "DELETE" });
     cookie = "";
     assert.equal((await send("/api/overview")).status, 401);
+    // Sign-out revokes the session server side: the old cookie no longer works.
+    cookie = stolen;
+    assert.equal((await send("/api/overview")).status, 401);
+    cookie = "";
   } finally {
     await mf.dispose();
   }
