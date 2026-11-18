@@ -119,3 +119,40 @@ test("summary replaces the prefix; dangling tool results become text", () => {
   assert.match(transcript, /User: fix the bug/);
   assert.match(transcript, /Assistant called Read \(t0\)/);
 });
+
+import { contextBreakdown, stableConversationId } from "../src/context.ts";
+test("contextBreakdown splits a Kiro request into its parts", () => {
+  const c = {
+    id: "x",
+    system: "S".repeat(400),
+    tools: [{ toolSpecification: { name: "Read", description: "d", inputSchema: { json: {} } } }],
+    turns: [
+      { userInputMessage: { content: "U".repeat(40) } },
+      { assistantResponseMessage: { content: "A".repeat(40), toolUses: [{ toolUseId: "t1", name: "Read", input: { path: "P".repeat(80) } }] } },
+      { userInputMessage: { content: "", userInputMessageContext: { toolResults: [{ toolUseId: "t1", status: "success", content: [{ text: "R".repeat(800) }] }] } } },
+      { assistantResponseMessage: { content: "ok" } },
+      { userInputMessage: { content: "N".repeat(20) } },
+    ],
+  };
+  const b = contextBreakdown(c as any);
+  assert.equal(b.system, 100);
+  assert.ok(b.tools > 0);
+  assert.equal(b.messages, 10 + 10 + 0 + 1);
+  assert.ok(b.toolResults >= 200 && b.toolResults < 260);
+  assert.ok(b.toolInputs >= 20);
+  assert.ok(b.current >= 5 && b.current < 10);
+});
+
+test("stableConversationId: same thread, same ID; other thread or session, another", async () => {
+  const thread = (first: string, more = 0) => ({
+    id: "",
+    system: "sys",
+    tools: [],
+    turns: [{ userInputMessage: { content: first } }, ...Array.from({ length: more }, () => ({ assistantResponseMessage: { content: "a" } }))],
+  });
+  const a = await stableConversationId("s1", thread("hello") as any);
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(await stableConversationId("s1", thread("hello", 3) as any), a, "later turns keep the ID");
+  assert.notEqual(await stableConversationId("s1", thread("other") as any), a);
+  assert.notEqual(await stableConversationId("s2", thread("hello") as any), a);
+});

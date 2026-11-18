@@ -11,6 +11,7 @@ import Seg from "./Seg";
 import Stepper from "./Stepper";
 import CodeBox from "./CodeBox";
 import LiveLog from "./LiveLog";
+import ContextBars, { parseContext } from "./ContextBars";
 import Button from "./Button";
 import { stopRequest } from "../api/requests";
 type Tab = "overview" | "request" | "response" | "error";
@@ -23,9 +24,12 @@ const hints: Record<string, string> = {
 export default function RequestDialog({
   id,
   onClose,
+  onFilter,
 }: {
   id: string;
   onClose: () => void;
+  /** Show the history filtered by this text (e.g. a session ID). */
+  onFilter?: (q: string) => void;
 }) {
   const { closing, close } = useDialogClose(onClose);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -200,7 +204,26 @@ export default function RequestDialog({
                         <span>{v}</span>
                       </div>
                     ))}
+                    {(
+                      [
+                        ["Phiên Claude Code", r.claude_session, "Tên file lịch sử của phiên trong ~/.claude/projects/<dự án>/"],
+                        ["Kiro conversationId", r.kiro_conversation, "ID hội thoại gateway gửi cho Kiro"],
+                      ] as const
+                    ).map(([k, v, hint]) => (
+                      <div key={k} title={hint}>
+                        <small>{k}</small>
+                        <span className="mono id-line">
+                          {v ?? "—"}
+                          {v && onFilter && (
+                            <button type="button" className="ib" onClick={() => { onFilter(v); close(); }}>
+                              Xem cùng ID
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
                   </div>
+                  {parseContext(r.context) && <ContextBars sizes={parseContext(r.context)!} />}
                   {r.status !== 0 && live && (
                     <LiveLog text={live} bytes={liveBytes} running={false} />
                   )}

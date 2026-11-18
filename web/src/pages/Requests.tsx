@@ -25,8 +25,8 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
       period: "day",
       anchor: localDate(),
     }),
-    [search, setSearch] = useState(""),
-    [q, setQ] = useState(""),
+    [search, setSearch] = useState(() => new URLSearchParams(location.search).get("q") ?? ""),
+    [q, setQ] = useState(() => new URLSearchParams(location.search).get("q") ?? ""),
     [status, setStatus] = useState(""),
     [provider, setProvider] = useState(""),
     [page, setPage] = useState(1),
@@ -276,6 +276,11 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         <RequestDialog
           key={selected}
           id={selected}
+          onFilter={(text) => {
+            setSearch(text);
+            setQ(text);
+            setPage(1);
+          }}
           onClose={() => {
             setSelected("");
             setQuietFor(query);

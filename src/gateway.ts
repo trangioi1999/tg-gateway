@@ -35,10 +35,12 @@ import {
   renderTranscript,
   summaryRequest,
   applySummary,
+  contextBreakdown,
+  stableConversationId,
 } from "./context.ts";
 import { KiroAuth, parseCredentials } from "./kiro-auth.ts";
 import { Formatter, consume, type ApiMode } from "./stream.ts";
-import { detectAgent, detectClient } from "./clients.ts";
+import { detectAgent, detectClient, detectSession } from "./clients.ts";
 import type { ProvidersResponse } from "./dashboard/contract.ts";
 import { ResponseCache, responseKey, snapshot, restore } from "./cache.ts";
 import {
@@ -530,11 +532,13 @@ export class Gateway extends DurableObject<Env> {
       const raw = parseJson(text);
       // Requested model, so rejected requests still show it (routes overwrite it below),
       // and which agent (main session, subagent, `[agent:name]`) sent it.
+      const session = detectSession(request.headers, raw);
       if (object(raw))
         this.sql.exec(
-          "UPDATE requests SET model=?,agent=? WHERE id=?",
+          "UPDATE requests SET model=?,agent=?,claude_session=? WHERE id=?",
           typeof raw.model === "string" ? raw.model.slice(0, 160) : "",
           detectAgent(raw),
+          session,
           id,
         );
       if (object(raw) && typeof raw.model === "string" && autoModeTarget(raw, s)) {
@@ -853,6 +857,18 @@ export class Gateway extends DurableObject<Env> {
       );
       if (applied.length) trace.mark("optimize", "done", applied.join(" · "));
       else trace.mark("optimize", "skip", "below_threshold");
+      if (s.stableConversationId) {
+        // From the turns as the client sent them, so clearing/compaction do not change it.
+        prepared.conversation.id = await stableConversationId(session, { ...prepared.conversation, turns: original });
+        rebuild(prepared);
+      }
+      // What is sent to Kiro, for the dashboard (token estimates only).
+      this.sql.exec(
+        "UPDATE requests SET kiro_conversation=?,context=? WHERE id=?",
+        prepared.conversation.id,
+        JSON.stringify({ ...contextBreakdown(prepared.conversation), total: prepared.estimatedInput, saved: savedTokens }),
+        id,
+      );
       if (s.responseCacheSeconds) {
         // Identical resend (retry after a dropped stream, duplicate background call): replay
         // the stored answer, or wait for the identical request that is still running.

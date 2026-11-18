@@ -518,3 +518,14 @@ dialog.dialog-closing::backdrop{animation:fade-out 160ms ease-in forwards}
 .request-table td small.agent-tag{margin-left:22px}
 .request-table td small.agent-tag.named{color:var(--accent-ink);font-weight:600}
 .kpi .k .kn{font-size:11px;color:var(--faint);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.id-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px!important;overflow-wrap:anywhere}
+.id-line .ib{height:22px;padding:0 6px;font-size:11px;font-family:var(--f-ui,inherit)}
+.ctx{border:1px solid var(--line);border-radius:var(--r-in);padding:12px 14px;display:grid;gap:10px;background:var(--surface)}
+.ctx-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--fill)}
+.ctx-bar i{display:block;height:100%}
+.ctx-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.ctx-list li{display:grid;grid-template-columns:12px minmax(0,1fr) 64px 44px;gap:8px;align-items:center;font-size:13px}
+.ctx-list .nm{display:grid;min-width:0}.ctx-list .nm small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctx-list .num{text-align:right;font-family:var(--f-mono);font-size:12px}.ctx-list .pct{color:var(--muted)}
+.ctx .dot{width:10px;height:10px;border-radius:3px}
+.ctx .c0{background:#8e8e93}.ctx .c1{background:#5e5ce6}.ctx .c2{background:#30b0c7}.ctx .c3{background:#ff9f0a}.ctx .c4{background:#ff6b6b}.ctx .c5{background:#34c759}

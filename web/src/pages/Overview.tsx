@@ -260,6 +260,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
         <RequestDialog
           key={selected}
           id={selected}
+          onFilter={(text) => go("/requests?q=" + encodeURIComponent(text))}
           onClose={() => setSelected("")}
         />
       )}
