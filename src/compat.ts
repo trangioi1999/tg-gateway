@@ -7,7 +7,8 @@
  * metering usage for the ledger.
  */
 import { HttpError, type Env, type Settings } from "./types.ts";
-import { estimateTokens, object } from "./protocol.ts";
+import { estimateTokens, modelId, object } from "./protocol.ts";
+import { detectAgent } from "./clients.ts";
 import type { ApiMode } from "./stream.ts";
 
 type Obj = Record<string, any>;
@@ -499,4 +500,18 @@ export function toAnthropic(body: unknown, route: Route, clientHeaders: Headers,
     stream: body.stream === true,
     estimatedInput: estimateTokens(JSON.stringify(body.messages)),
   };
+}
+
+/**
+ * True when `raw` is Claude Code's auto-mode classifier call on the Kiro route and
+ * Settings → autoModeModel names another enabled Kiro model.
+ */
+export function autoModeTarget(raw: Record<string, any>, s: Settings): boolean {
+  const target = s.autoModeModel;
+  if (!target || detectAgent(raw) !== "auto-mode") return false;
+  // Provider-prefixed models (anthropic/, openrouter/…) are not the Kiro route.
+  const prefixed = (m: string) => PROVIDERS.some((p) => m.startsWith(p.prefix));
+  if (prefixed(raw.model) || prefixed(target)) return false;
+  const id = modelId(target);
+  return s.models.map(modelId).includes(id) && modelId(raw.model) !== id;
 }

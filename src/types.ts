@@ -34,6 +34,12 @@ export interface Settings {
   compactTriggerTokens: number;
   compactKeepTokens: number;
   compactModel: string;
+  /**
+   * Kiro model for Claude Code's auto-mode safety classifier (one extra request per tool
+   * call, sent with the main model). "" = keep the client's model. Applies only when the
+   * model is enabled in `models`.
+   */
+  autoModeModel: string;
   /** Replay identical completed requests from memory for this long (0 = off). */
   responseCacheSeconds: number;
   /** Name shown in the console header. */
@@ -63,6 +69,7 @@ export const defaults: Settings = {
   compactTriggerTokens: 120_000,
   compactKeepTokens: 30_000,
   compactModel: "claude-haiku-4.5",
+  autoModeModel: "claude-sonnet-5.5",
   responseCacheSeconds: 300,
   displayName: "Admin",
   capturePayloads: "off",
@@ -161,5 +168,7 @@ export function validateSettings(raw: unknown): Settings {
     !/^[a-zA-Z0-9._:-]{1,160}$/.test(s.compactModel)
   )
     throw new HttpError(400, "invalid_settings", "compactModel must be a Kiro model ID (no provider prefix).");
+  if (typeof s.autoModeModel !== "string" || !/^[a-zA-Z0-9._:-]{0,160}$/.test(s.autoModeModel))
+    throw new HttpError(400, "invalid_settings", "autoModeModel must be empty or a Kiro model ID (no provider prefix).");
   return { ...s, models: [...new Set(s.models)] };
 }

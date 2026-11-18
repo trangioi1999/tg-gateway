@@ -16,6 +16,7 @@ export function savingTags(optimizations: string, saved: number) {
     if (tag === "compact_new" || tag === "compact") return "compact";
     if (tag === "cache_hit") return "cache";
     if (tag === "local_reply") return "max_tokens=1";
+    if (tag === "auto_mode_model") return "auto→model rẻ";
     return tag;
   }))];
 }

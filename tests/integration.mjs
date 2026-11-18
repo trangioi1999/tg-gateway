@@ -702,7 +702,7 @@ test("provider quotas: healthy answers are cached, failures and sign-in changes 
 test("running request: live output in the detail view, stop from the dashboard", async () => {
   const mf = gateway(recording);
   try {
-    const { send } = await signedIn(mf);
+    const { send, calls } = await signedIn(mf);
     const s = (await (await send("/api/settings")).json()).settings;
     assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0 }) })).status, 200);
     const slow = await send("/v1/messages", {
@@ -749,6 +749,25 @@ test("running request: live output in the detail view, stop from the dashboard",
     const found = (await (await send("/api/requests?q=coder")).json()).items;
     assert.equal(found.length, 1);
     assert.equal(found[0].agent, "coder");
+    // Claude Code's auto-mode classifier is answered with Settings → autoModeModel.
+    const current = (await (await send("/api/settings")).json()).settings;
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...current, autoModeModel: "claude-haiku-4.5" }) })).status, 200);
+    const classifier = await send("/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 100,
+        stop_sequences: ["</block>"],
+        system: [{ type: "text", text: "You are a security monitor for autonomous AI coding agents." }],
+        messages: [{ role: "user", content: "classify this" }],
+      }),
+    });
+    assert.equal(classifier.status, 200);
+    const sent = (await calls()).find((p) => p.conversationState.currentMessage.userInputMessage.content.includes("classify this"));
+    assert.equal(sent.conversationState.currentMessage.userInputMessage.modelId, "claude-haiku-4.5");
+    const row = (await (await send("/api/requests?q=auto-mode")).json()).items[0];
+    assert.equal(row.model, "claude-haiku-4.5");
+    assert.match(row.optimizations, /auto_mode_model/);
   } finally {
     await mf.dispose();
   }

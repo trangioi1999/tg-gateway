@@ -30,7 +30,7 @@ export default function RequestTable({ rows, compact = false, loading = false, r
             <td title={status.label}><span className={`st ${status.tone}`}>{status.label}</span></td>
             <td className="r num" title={`${fmtInt(r.input_tokens)} / ${fmtInt(r.output_tokens)}`}>{fmtInt(r.input_tokens)} / {r.status === 0 ? "—" : fmtInt(r.output_tokens)}</td>
             <td className="r num">{r.status === 0 ? "—" : fmtCredit(r.estimated_credits)}{!compact && <> / {r.reported_credits === null ? "—" : fmtCredit(r.reported_credits)}</>}</td>
-            {!compact && <td title={tags.join(", ")}><div className="saving-tags">{tags.length ? tags.map(tag => <span className={`tag${/^(clear|cache|compact)/.test(tag) ? " save" : ""}`} key={tag}>{tag}</span>) : "—"}</div></td>}
+            {!compact && <td title={tags.join(", ")}><div className="saving-tags">{tags.length ? tags.map(tag => <span className={`tag${/^(clear|cache|compact|auto)/.test(tag) ? " save" : ""}`} key={tag}>{tag}</span>) : "—"}</div></td>}
             <td className="r num">{r.status === 0 ? "—" : fmtMs(r.latency)}</td>{onStop && r.status === 0
               ? <td className="r"><button type="button" className="stop" aria-label="Dừng request" title="Dừng request" onClick={e => { e.stopPropagation(); onStop(r.id); }} onKeyDown={e => e.stopPropagation()}>■</button></td>
               : <td className="r chev" aria-hidden="true">›</td>}

@@ -49,6 +49,7 @@ import {
   fromUpstreamJson,
   providerKey,
   routeModel,
+  autoModeTarget,
   toUpstream,
   PROVIDERS,
 } from "./compat.ts";
@@ -536,6 +537,11 @@ export class Gateway extends DurableObject<Env> {
           detectAgent(raw),
           id,
         );
+      if (object(raw) && typeof raw.model === "string" && autoModeTarget(raw, s)) {
+        // Auto-mode classifier on the Kiro route: answer it with the cheaper model.
+        raw.model = s.autoModeModel;
+        optimizations.push("auto_mode_model");
+      }
       const route = object(raw) ? routeModel(raw.model, s) : null;
       if (route) trace.mark("optimize", "skip", "not_kiro");
       if (route?.provider.native) {
@@ -842,7 +848,9 @@ export class Gateway extends DurableObject<Env> {
           savedTokens += compacted.savedTokens;
         }
       }
-      const applied = optimizations.filter((o) => o.startsWith("cleared:") || o.startsWith("compact"));
+      const applied = optimizations.filter(
+        (o) => o.startsWith("cleared:") || o.startsWith("compact") || o === "auto_mode_model",
+      );
       if (applied.length) trace.mark("optimize", "done", applied.join(" · "));
       else trace.mark("optimize", "skip", "below_threshold");
       if (s.responseCacheSeconds) {
