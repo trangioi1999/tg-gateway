@@ -17,6 +17,7 @@ export function savingTags(optimizations: string, saved: number) {
     if (tag === "cache_hit") return "cache";
     if (tag === "local_reply") return "max_tokens=1";
     if (tag === "auto_mode_model") return "auto→model rẻ";
+    if (tag.startsWith("tools_dropped:")) return "bỏ " + tag.slice(14) + " tool";
     return tag;
   }))];
 }
@@ -26,6 +27,7 @@ export function requestSource(r: Pick<RequestRow, "ip" | "city" | "country">) {
 }
 const agents: Record<string, string> = {
   main: "Phiên chính",
+  background: "Nền",
   subagent: "Subagent",
   "auto-mode": "Phân loại auto mode",
 };

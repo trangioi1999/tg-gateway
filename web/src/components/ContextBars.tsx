@@ -9,8 +9,11 @@ export interface ContextSizes {
   current: number;
   total: number;
   saved: number;
+  /** Tools the client sent, largest first; `dropped` = not sent (Settings). */
+  toolList?: { name: string; tokens: number; dropped?: boolean }[];
 }
-const parts: [keyof ContextSizes, string, string][] = [
+type Part = "system" | "tools" | "messages" | "toolResults" | "toolInputs" | "current";
+const parts: [Part, string, string][] = [
   ["system", "System prompt", "Hướng dẫn của client (Claude Code), CLAUDE.md, memory"],
   ["tools", "Định nghĩa tool", "Tool có sẵn và MCP; gửi lại ở mọi request"],
   ["messages", "Tin nhắn cũ", "Lời bạn và câu trả lời của model ở các lượt trước"],
@@ -52,6 +55,23 @@ export default function ContextBars({ sizes }: { sizes: ContextSizes }) {
             </li>
           ))}
         </ul>
+        {!!sizes.toolList?.length && (
+          <details className="ctx-tools">
+            <summary>
+              Từng tool ({sizes.toolList.length}
+              {sizes.toolList.some((t) => t.dropped) && `, đã bỏ ${sizes.toolList.filter((t) => t.dropped).length}`})
+            </summary>
+            <ul>
+              {sizes.toolList.map((t) => (
+                <li key={t.name} className={t.dropped ? "dropped" : ""}>
+                  <span className="mono">{t.name}</span>
+                  {t.dropped && <span className="tag">không gửi</span>}
+                  <span className="num">{fmtCompact(t.tokens)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <p className="hint">Ước tính theo số byte / 4, chỉ lưu con số, không lưu nội dung.</p>
       </div>
     </div>

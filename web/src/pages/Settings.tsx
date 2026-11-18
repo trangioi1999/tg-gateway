@@ -113,6 +113,8 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
       const next = {
         ...draft,
         models: draft.models.map((m) => m.trim()).filter(Boolean),
+        toolAllowlist: draft.toolAllowlist.map((m) => m.trim()).filter(Boolean),
+        toolDenylist: draft.toolDenylist.map((m) => m.trim()).filter(Boolean),
       };
       const response = await api<{ settings: SettingsType }>("/api/settings", {
         method: "PUT",

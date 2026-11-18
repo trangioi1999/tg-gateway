@@ -72,7 +72,7 @@ function systemText(body: Record<string, any>): string {
 
 /**
  * Which agent sent the request, for the dashboard: an explicit `[agent:name]` marker, or a
- * coarse guess from Claude Code's own prompts ("main" session, built-in "subagent",
+ * coarse guess from Claude Code's own prompts ("main" session, "background" side call, built-in "subagent",
  * "auto-mode" safety classifier). Null when nothing matches. Display only, like detectClient.
  */
 export function detectAgent(body: unknown): string | null {
@@ -82,7 +82,12 @@ export function detectAgent(body: unknown): string | null {
   const marker = AGENT_MARKER.exec(system);
   if (marker) return marker[1].toLowerCase();
   if (system.includes("You are a security monitor for autonomous AI coding agents")) return "auto-mode";
-  if (/You are Claude Code, Anthropic's official CLI/.test(system)) return "main";
+  // The main session always sends its tools; Claude Code's small side calls (session
+  // title, topic check) carry the same prompt opening but no tools.
+  if (/You are Claude Code, Anthropic's official CLI/.test(system)) {
+    const tools = (body as Record<string, any>).tools;
+    return Array.isArray(tools) && tools.length ? "main" : "background";
+  }
   if (/Claude Code|Anthropic's official CLI for Claude/.test(system)) return "subagent";
   return null;
 }

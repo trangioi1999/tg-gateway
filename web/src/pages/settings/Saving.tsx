@@ -49,6 +49,39 @@ export default function Saving({ draft, set }: SectionProps) {
         </div>
       </div>
       <div className="group">
+        <h3>Định nghĩa tool</h3>
+        <div className="rows">
+          <Row
+            label="Chỉ gửi các tool"
+            note="Mỗi dòng một tên, * là ký tự đại diện (vd. mcp__github__*). Để trống = gửi tất cả. Tool không có trong danh sách thì model không thấy và không gọi được."
+            stack
+          >
+            <textarea
+              aria-label="Chỉ gửi các tool"
+              rows={5}
+              placeholder={"(trống = gửi tất cả) ví dụ:\nRead\nEdit\nWrite\nBash\nGrep\nGlob\nAgent"}
+              value={draft.toolAllowlist.join("\n")}
+              onChange={(e) => set("toolAllowlist", e.target.value.split("\n"))}
+            />
+          </Row>
+          <Row
+            label="Không gửi các tool"
+            note="Áp dụng sau danh sách trên, ví dụ NotebookEdit, WebSearch."
+            stack
+          >
+            <textarea
+              aria-label="Không gửi các tool"
+              rows={3}
+              value={draft.toolDenylist.join("\n")}
+              onChange={(e) => set("toolDenylist", e.target.value.split("\n"))}
+            />
+          </Row>
+        </div>
+        <p className="note">
+          Mở một request trong Lịch sử → "Context gửi lên Kiro" để xem số token của từng tool.
+        </p>
+      </div>
+      <div className="group">
         <h3>Compact &amp; cache</h3>
         <div className="rows">
           <Row
