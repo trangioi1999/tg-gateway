@@ -556,7 +556,7 @@ dialog.dialog-closing::backdrop{animation:fade-out 160ms ease-in forwards}
 .ctx-tools li{display:grid;grid-template-columns:minmax(0,1fr) auto 64px;gap:8px;align-items:center;font-size:12px}
 .ctx-tools li .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx-tools li .num{text-align:right;font-family:var(--f-mono)}
-.ctx-tools li.dropped{color:var(--faint)}.ctx-tools li.dropped .mono{text-decoration:line-through}
+
 
 /* Overview: "Mở lịch sử" link sits on the card header baseline, icon follows the text. */
 .more{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:500}
@@ -586,5 +586,37 @@ p.error{margin:8px 0;padding:8px 12px;border-radius:var(--r-in);background:var(-
 .signin .fine{font-size:12px;color:var(--faint)}
 /* Flow page: the diagram as a card filling the content width. */
 .flow-page .lflow{display:grid!important;grid-template-rows:1fr auto;padding:24px;text-align:center;background:var(--surface);border-radius:var(--r-card)}
-.flow-page .flow{width:100%;max-width:980px;max-height:none;margin:0 auto}
+.flow-page .flow{width:100%;max-width:820px;max-height:none;margin:0 auto}.flow-page .flow .node text{font-size:12px}.flow-page .flow .node text.s{font-size:10.5px}.flow .node foreignObject>*{display:block;width:100%;height:100%}
 .status-line b{color:var(--ink);font-weight:600}
+/* Settings sections live in the sidebar, under "Cài đặt". */
+.subnav{display:grid;gap:1px;margin:2px 0 6px;padding-inline-start:12px}.nav .subnav a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nav-caret{margin-inline-start:auto;display:grid;place-items:center;color:var(--faint);transition:transform .15s var(--ease)}.nav-caret.open{transform:rotate(90deg)}
+.nav .subnav a{height:30px;font-size:13px;gap:8px;padding:0 8px}
+.nav a.has-sub[aria-current]{background:transparent;color:var(--ink)}
+.settings .set-wrap{grid-template-columns:minmax(0,1fr);max-width:860px}
+.settings .settings-actions{margin-inline-start:0;max-width:860px}
+.flow .lg{width:100%;height:100%}
+/* Per-tool sizes in the request dialog: sent / not sent groups. */
+.ctx-tools summary{display:flex;align-items:center;gap:8px}
+.ctx-tools summary .num{color:var(--muted);font-weight:400}
+.tg-wrap{display:grid;gap:12px;margin-top:10px;max-height:320px;overflow:auto;padding-inline-end:4px}
+.tg h4{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:6px;margin:0 0 4px;padding:4px 0;background:var(--surface);font-size:12px;font-weight:600}
+.tg h4 b{font-weight:500;color:var(--muted)}
+.tg-note{margin-inline-start:auto;font-weight:400;color:var(--faint);font-variant-numeric:tabular-nums}
+.tg-dot{width:8px;height:8px;border-radius:2px;background:var(--accent)}
+.tg.dropped .tg-dot{background:var(--faint)}
+.tg ul{list-style:none;margin:0;padding:0;display:grid;gap:2px;max-height:none;overflow:visible}
+.tg li{display:grid;grid-template-columns:minmax(0,1fr) 96px 52px;gap:10px;align-items:center;font-size:12px;padding:3px 6px;border-radius:6px}
+.tg li:hover{background:var(--fill)}
+.tg li .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg li .num{text-align:right;font-family:var(--f-mono);font-size:12px}
+.tg-bar{height:4px;border-radius:2px;background:var(--fill)}
+.tg-bar i{display:block;height:100%;border-radius:2px;background:var(--accent);opacity:.7}
+.tg.dropped li{color:var(--muted)}
+.tg.dropped .tg-bar i{background:var(--faint);opacity:.6}
+/* Tooltip (Tip): rendered in body so table cells do not clip it. */
+.tip{position:fixed;z-index:60;max-width:300px;padding:10px 12px;border-radius:var(--r-in);background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:0 10px 30px -12px rgba(20,24,31,.3);font-size:12px;line-height:1.45;pointer-events:none;animation:fade-in 100ms ease-out}
+.tip ul{margin:4px 0 0;padding-inline-start:16px;display:grid;gap:2px;color:var(--muted)}
+.tip-t{font-weight:600}.tip-f{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--line);color:var(--good);font-variant-numeric:tabular-nums}
+.request-table .saving-tags{display:inline-flex;flex-wrap:nowrap;gap:4px;max-width:100%;max-height:none;overflow:visible;cursor:default;border-radius:6px}
+.request-table .saving-tags .tag{max-width:none}
+.request-table .tag.more{background:var(--fill-2);color:var(--muted)}

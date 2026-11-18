@@ -19,9 +19,22 @@ export function savingTags(optimizations: string, saved: number) {
     if (tag.startsWith("cleared:")) return `clear${saved > 0 ? " −" + fmtCompact(saved) : ""}`;
     if (tag === "compact_new" || tag === "compact") return "compact";
     if (tag === "cache_hit") return "cache";
-    if (tag === "local_reply") return "max_tokens=1";
-    if (tag === "auto_mode_model") return "auto→model rẻ";
+    if (tag === "local_reply") return "local";
+    if (tag === "auto_mode_model") return "model rẻ";
     if (tag.startsWith("tools_dropped:")) return "bỏ " + tag.slice(14) + " tool";
+    return tag;
+  }))];
+}
+/** What each credit-saving step did, for the tooltip of the "Tiết kiệm" column. */
+export function savingDetails(optimizations: string): string[] {
+  return [...new Set(optimizations.split(",").filter(Boolean).map(tag => {
+    if (tag.startsWith("cleared:")) return `Xóa ${tag.slice(8)} kết quả tool cũ khỏi context`;
+    if (tag === "compact_new") return "Nén context: tạo bản tóm tắt mới cho phần đầu hội thoại";
+    if (tag === "compact") return "Nén context: dùng lại bản tóm tắt đã có";
+    if (tag === "cache_hit") return "Trả lời từ cache, không gọi lên nhà cung cấp";
+    if (tag === "local_reply") return "Trả lời tại gateway (request kiểm tra quota max_tokens=1)";
+    if (tag === "auto_mode_model") return "Phân loại auto mode chạy bằng model rẻ hơn";
+    if (tag.startsWith("tools_dropped:")) return `Không gửi ${tag.slice(14)} định nghĩa tool (Cài đặt → Tiết kiệm credit)`;
     return tag;
   }))];
 }

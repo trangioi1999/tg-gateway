@@ -139,7 +139,7 @@ test("request table presents HTTP, provider errors and replay status", () => {
   assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "local_reply" }).label, "Thành công");
 });
 test("request table derives savings, local sources and calendar dates", () => {
-  assert.deepEqual(savingTags("cleared:8,compact_new,cache_hit,local_reply", 64000), ["clear −64K", "compact", "cache", "max_tokens=1"]);
+  assert.deepEqual(savingTags("cleared:8,compact_new,cache_hit,local_reply", 64000), ["clear −64K", "compact", "cache", "local"]);
   assert.deepEqual(savingTags("", 0), []);
   assert.deepEqual(savingTags("compact,compact_new", 1200), ["compact"]);
   assert.deepEqual(requestSource({ ip: "::1", city: null, country: null }), { place: "local", ip: "local" });

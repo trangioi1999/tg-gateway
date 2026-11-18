@@ -8,8 +8,7 @@ import { api, ApiError } from "../api/client";
 import { useApi } from "../hooks/useApi";
 import { providersUrl } from "../lib/period";
 import SaveBar from "../components/SaveBar";
-import Brand from "../components/Brand";
-import ActionIcon, { type IconName } from "../components/ActionIcon";
+import { currentSection, sections, visibleSections as visibleFor } from "../lib/settingsSections";
 import General from "./settings/General";
 import Kiro from "./settings/Kiro";
 import ClaudeApi from "./settings/ClaudeApi";
@@ -23,16 +22,6 @@ import type {
   SettingsResponse,
   SettingsDraft,
 } from "./settings/types";
-const sections = [
-  ["general", "Chung", "sliders"],
-  ["kiro", "Kiro", "kiro"],
-  ["anthropic", "Claude API", "anthropic"],
-  ["openrouter", "OpenRouter", "openrouter"],
-  ["saving", "Tiết kiệm credit", "scissors"],
-  ["budget", "Ngân sách", "wallet"],
-  ["connect", "Kết nối & bảo mật", "plug"],
-  ["data", "Dữ liệu & log", "database"],
-] as const;
 const panels = {
   general: General,
   kiro: Kiro,
@@ -43,10 +32,6 @@ const panels = {
   connect: Connect,
   data: Data,
 };
-function currentSection() {
-  const hash = location.hash.slice(1);
-  return sections.some(([id]) => id === hash) ? hash : "general";
-}
 export default function Settings({ headerTools }: { headerTools: ReactNode }) {
   const [revision, retry] = useState(0),
     result = useApi<SettingsResponse>("/api/settings", revision),
@@ -72,12 +57,12 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
       window.removeEventListener("popstate", update);
     };
   }, []);
-  const visibleSections = sections.filter(([id]) => !["kiro", "anthropic", "openrouter"].includes(id) || providers.data?.providers.some(p => p.id === id && p.configured));
+  const visibleSections = visibleFor((id) => !!providers.data?.providers.some(p => p.id === id && p.configured));
   const activeSection = visibleSections.some(([id]) => id === section) ? section : "general";
   useEffect(() => {
     if (!providers.loading && section !== activeSection) {
       setSection("general");
-      history.replaceState(null, "", location.pathname + location.search + "#general");
+      history.replaceState(null, "", "/settings" + location.search);
     }
   }, [providers.loading, section, activeSection]);
   const count =
@@ -143,38 +128,17 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
     <section className="page settings">
       <div className="top">
         <div>
-          <h1>Cài đặt</h1>
-          <p className="lead">Thay đổi áp dụng cho request mới</p>
+          <h1>{sections.find(([id]) => id === activeSection)?.[1] ?? "Cài đặt"}</h1>
+          <p className="lead">Cài đặt · thay đổi áp dụng cho request mới</p>
         </div>
         <div className="tools">{headerTools}</div>
       </div>
       <div className="settings-content">
-        {result.loading && !draft && <div className="set-wrap" aria-busy="true"><nav className="snav" aria-label="Mục cài đặt">{visibleSections.map(([id, label]) => <button disabled key={id}><span className="si"><Skeleton /></span>{label}</button>)}</nav><div className="spanel"><Skeleton className="rows skeleton-settings" rows={6} /></div></div>}
+        {result.loading && !draft && <div className="set-wrap" aria-busy="true"><div className="spanel"><Skeleton className="rows skeleton-settings" rows={6} /></div></div>}
         {result.error && <ErrorCard message={result.error} onRetry={result.retry} />}
         {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
         {draft && result.data && (
           <div className={result.loading || providers.loading ? "set-wrap refetching" : "set-wrap"}>
-            <nav className="snav" aria-label="Mục cài đặt">
-              {visibleSections.map(([id, label, icon]) => (
-                <button
-                  key={id}
-                  aria-pressed={activeSection === id}
-                  onClick={() => {
-                    location.hash = id;
-                    setSection(id);
-                  }}
-                >
-                  <span className="si">
-                    {["kiro", "anthropic", "openrouter"].includes(icon) ? (
-                      <Brand id={icon} size={18} />
-                    ) : (
-                      <ActionIcon name={icon as IconName} size={18} />
-                    )}
-                  </span>
-                  {label}
-                </button>
-              ))}
-            </nav>
             <div>
               {visibleSections.map(([id]) => {
                 const Panel = panels[id];
