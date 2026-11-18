@@ -517,3 +517,4 @@ dialog.dialog-closing::backdrop{animation:fade-out 160ms ease-in forwards}
 .kv div:last-child:nth-child(odd){grid-column:1/-1}
 .request-table td small.agent-tag{margin-left:22px}
 .request-table td small.agent-tag.named{color:var(--accent-ink);font-weight:600}
+.kpi .k .kn{font-size:11px;color:var(--faint);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}

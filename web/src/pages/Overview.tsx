@@ -12,7 +12,7 @@ import type {
 } from "../../../src/dashboard/contract";
 import { useApi } from "../hooks/useApi";
 import { comparisonText, localDate, periodQuery, providersUrl, type PeriodValue } from "../lib/period";
-import { fmtCompact, fmtInt, fmtMs } from "../lib/format";
+import { fmtCompact, fmtCredit, fmtInt, fmtMs } from "../lib/format";
 import PeriodBar from "../components/PeriodBar";
 import { modelBrand, providerLabel } from "../lib/brands";
 import QuotaCard from "../components/QuotaCard";
@@ -28,7 +28,7 @@ function selectedProvider() {
 }
 export default function Overview({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
-      period: "week",
+      period: "day",
       anchor: localDate(),
     }),
     [provider, setProvider] = useState(selectedProvider),
@@ -120,6 +120,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <Kpi
                 comparison={comparisonText(period)}
                 label="Request"
+                note={`trễ TB ${fmtMs(t.avg_latency)}`}
                 value={fmtInt(t.requests)}
                 current={t.requests}
                 previous={p.requests}
@@ -127,10 +128,31 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <Kpi
                 comparison={comparisonText(period)}
                 label="Token"
+                note={`vào ${fmtCompact(t.input_tokens)} · ra ${fmtCompact(t.output_tokens)}`}
                 value={fmtCompact(t.input_tokens + t.output_tokens)}
                 current={t.input_tokens + t.output_tokens}
                 previous={p.input_tokens + p.output_tokens}
               />
+              {provider && provider !== "kiro" ? (
+                <Kpi
+                  comparison={comparisonText(period)}
+                  label="Chi phí"
+                  better="down"
+                  value={"$" + fmtCredit(t.cost_usd)}
+                  current={t.cost_usd}
+                  previous={p.cost_usd}
+                />
+              ) : (
+                <Kpi
+                  comparison={comparisonText(period)}
+                  label="Credit Kiro"
+                  better="down"
+                  note={t.requests ? `TB ${fmtCredit(t.reported_credits / Math.max(1, t.reported_requests))}/request` : undefined}
+                  value={fmtCredit(t.reported_credits)}
+                  current={t.reported_credits}
+                  previous={p.reported_credits}
+                />
+              )}
               <Kpi
                 comparison={comparisonText(period)}
                 label="Tỷ lệ thành công"
@@ -141,14 +163,6 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
                 }
                 current={success}
                 previous={previousSuccess}
-              />
-              <Kpi
-                comparison={comparisonText(period)}
-                label="Độ trễ TB"
-                better="down"
-                value={fmtMs(t.avg_latency)}
-                current={t.avg_latency}
-                previous={p.avg_latency}
               />
             </div>
           </div>
