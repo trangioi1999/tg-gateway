@@ -32,7 +32,8 @@ test("detectAgent: markers, Claude Code's own prompts, OpenAI system messages", 
   const sys = (text: string) => ({ system: [billing, { type: "text", text }], messages: [] });
   assert.equal(detectAgent(sys("You are a coder.\n[agent: Coder]\nImplement tasks.")), "coder");
   assert.equal(detectAgent(sys("You are a security monitor for autonomous AI coding agents.\n...")), "auto-mode");
-  assert.equal(detectAgent(sys("You are Claude Code, Anthropic's official CLI for Claude.")), "main");
+  assert.equal(detectAgent({ ...sys("You are Claude Code, Anthropic's official CLI for Claude."), tools: [{ name: "Read" }] }), "main");
+  assert.equal(detectAgent(sys("You are Claude Code, Anthropic's official CLI for Claude.")), "background", "no tools: side call");
   assert.equal(detectAgent(sys("You are an agent for Claude Code, Anthropic's official CLI for Claude.")), "subagent");
   assert.equal(detectAgent({ system: "Be brief.", messages: [] }), null);
   assert.equal(detectAgent({ messages: [{ role: "system", content: "[agent:leader] plan the work" }] }), "leader");
@@ -50,7 +51,7 @@ test("autoModeTarget: only the classifier, only on Kiro, only to an enabled mode
   });
   assert.equal(autoModeTarget(classifier("claude-opus-5-5"), s), true);
   assert.equal(autoModeTarget(classifier("claude-sonnet-5-5"), s), false, "already the target");
-  assert.equal(autoModeTarget({ ...classifier("claude-opus-5-5"), system: "You are Claude Code, Anthropic's official CLI for Claude." }, s), false);
+  assert.equal(autoModeTarget({ ...classifier("claude-opus-5-5"), system: "You are Claude Code, Anthropic's official CLI for Claude.", tools: [{ name: "Read" }] }, s), false);
   assert.equal(autoModeTarget(classifier("claude-opus-5-5"), { ...s, autoModeModel: "" }), false, "off");
   assert.equal(autoModeTarget(classifier("claude-opus-5-5"), { ...s, models: ["claude-opus-5.5"] }), false, "target not enabled");
   assert.equal(autoModeTarget(classifier("anthropic/claude-opus-5-5"), s), false, "not the Kiro route");

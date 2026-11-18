@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RequestDetail } from "../../../src/dashboard/contract";
 import { api } from "../api/client";
 import { clientLabel, providerLabel } from "../lib/brands";
-import { fmtClock, fmtCompact, fmtMs } from "../lib/format";
+import { fmtClock, fmtCompact, fmtCredit, fmtMs } from "../lib/format";
 import Seg from "./Seg";
 import Stepper from "./Stepper";
 import CodeBox from "./CodeBox";
@@ -194,7 +194,7 @@ export default function RequestDialog({
                       ],
                       [
                         "Credit",
-                        `${fmtCompact(r.estimated_credits)} quy đổi / ${r.reported_credits === null ? "—" : fmtCompact(r.reported_credits)} báo cáo`,
+                        `${fmtCredit(r.estimated_credits)} quy đổi / ${r.reported_credits === null ? "—" : fmtCredit(r.reported_credits)} báo cáo`,
                       ],
                       ["Request ID", r.id],
                       ["Endpoint", r.endpoint],

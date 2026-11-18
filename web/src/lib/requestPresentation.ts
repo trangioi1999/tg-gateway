@@ -27,6 +27,7 @@ export function requestSource(r: Pick<RequestRow, "ip" | "city" | "country">) {
 }
 const agents: Record<string, string> = {
   main: "Phiên chính",
+  background: "Nền",
   subagent: "Subagent",
   "auto-mode": "Phân loại auto mode",
 };
