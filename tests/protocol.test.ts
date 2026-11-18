@@ -572,3 +572,24 @@ test("tool allow/deny lists: wildcards, deny wins, dropped tools are not sent an
   assert.throws(() => validateSettings({ ...defaults, toolAllowlist: ["bad name!"] }));
   assert.deepEqual(validateSettings({ ...defaults, toolAllowlist: [" Read ", "", "Read"] }).toolAllowlist, ["Read"]);
 });
+
+test("streamed text is sent exactly once (no stop sequences, with a tool call)", async () => {
+  const frames = [
+    frame("assistantResponseEvent", { content: "Hello " }),
+    frame("assistantResponseEvent", { content: "world" }),
+    frame("toolUseEvent", { name: "read", toolUseId: "a", input: '{"path":"a"}', stop: true }),
+    frame("assistantResponseEvent", { content: " after" }),
+    frame("meteringEvent", { usage: 0.01 }),
+  ];
+  const response = new Response(new ReadableStream({ start(c) { frames.forEach((f) => c.enqueue(f)); c.close(); } }));
+  const c = new Completion(1);
+  const sent: string[] = [];
+  let tools = 0;
+  await consume(response, undefined, c, async (d) => {
+    if (d.text) sent.push(d.text);
+    if (d.tool) tools++;
+  });
+  assert.equal(sent.join(""), "Hello world after");
+  assert.equal(c.text, "Hello world after");
+  assert.equal(tools, 1);
+});

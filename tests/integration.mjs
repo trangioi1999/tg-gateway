@@ -159,9 +159,12 @@ test("real Worker + SQLite: auth, metering, streaming, immutable rates, errors a
     const stream = await chat("hello", true);
     const streamText = await stream.text();
     assert.match(streamText, /Hello world/);
+    assert.equal(streamText.split("Hello world").length - 1, 1, "answer text is streamed once");
     assert.match(streamText, /\[DONE\]/);
     const anthropic = await chat("hello", true, true);
-    assert.match(await anthropic.text(), /message_stop/);
+    const anthropicStream = await anthropic.text();
+    assert.match(anthropicStream, /message_stop/);
+    assert.equal(anthropicStream.split("Hello world").length - 1, 1, "answer text is streamed once");
     // Clean end of stream without metering: answer is delivered, ledger flags it.
     const quiet = await chat("truncated", true);
     const quietText = await quiet.text();

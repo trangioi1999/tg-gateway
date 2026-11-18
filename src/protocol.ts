@@ -620,6 +620,8 @@ export class Completion {
       if (stopped) return {};
       if (!this.stopSequences.length) {
         this.text += d.content;
+        // Handed out now: flush() and the tool path must not send it again.
+        this.released = this.text.length;
         return { text: d.content };
       }
       const from = Math.max(0, this.text.length - this.longestStop() + 1);
