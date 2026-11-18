@@ -1,34 +1,33 @@
-
-/* Layout: console = sidebar + content; login = 50/50 split (form | n8n-style flow).
-   Apple style, light + dark: Be Vietnam Pro bold, cool neutrals, one blue. */
+/* Layout: console = sidebar + content; login = 50/50 split (form | flow diagram).
+   Direction: an operator's console for one gateway. Graphite neutrals, the logo's navy as
+   the only accent, Be Vietnam Pro at 400/500/600, figures in tabular numerals.
+   Signature: the segmented credit meter (.track). */
 :root{
   --f-display:"Be Vietnam Pro",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --f-body:"Be Vietnam Pro",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
-  --w-h:700;--w-num:700;--w-label:600;--w-body:400;--track-h:-.03em;--h1:clamp(24px,1.95vw,28px);--density:clamp(12px,1.05vw,15px);--card-pad:var(--density);--request-row-height:56px;
-  --r-card:16px;--r-ctl:9999px;--r-in:12px;
-  --bg:#f5f5f7;--surface:#ffffff;--surface-2:#fafafc;--panel:#f0f0f3;--fill:rgba(0,0,0,.05);--fill-2:rgba(0,0,0,.09);--line:rgba(0,0,0,.08);
-  --ink:#1d1d1f;--muted:#6e6e73;--faint:#86868b;
-  --accent:#0071e3;--accent-ink:#0066cc;--on-accent:#fff;--accent-soft:rgba(0,113,227,.1);
-  --strong:#1d1d1f;--on-strong:#fff;
-  --good:#248a3d;--good-bg:rgba(52,199,89,.13);--bad:#d70015;--bad-bg:rgba(255,59,48,.1);--warn:#b25000;
-  --grid:rgba(0,0,0,.07);--switch-off:#e5e5ea;--code:#f5f5f7;--shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px -8px rgba(0,0,0,.08);
-  --c-key:#0f68a0;--c-str:#c41a16;--c-num:#1c00cf;--c-kw:#9b2393;--c-punc:#86868b;
+  --w-h:600;--w-num:600;--w-label:500;--w-body:400;--track-h:-.015em;--h1:clamp(22px,1.8vw,26px);--density:clamp(12px,1.05vw,16px);--card-pad:var(--density);--request-row-height:56px;
+  --r-card:14px;--r-ctl:8px;--r-in:10px;
+  --ease:cubic-bezier(.2,0,0,1);
+  --bg:#f3f4f6;--surface:#ffffff;--surface-2:#f8f9fa;--panel:#eceef1;--fill:rgba(20,24,31,.05);--fill-2:rgba(20,24,31,.08);--line:rgba(20,24,31,.09);
+  --ink:#16181c;--muted:#5b616b;--faint:#7a808a;
+  --accent:#1b4fa0;--accent-ink:#1b4fa0;--on-accent:#fff;--accent-soft:rgba(27,79,160,.08);
+  --strong:#16181c;--on-strong:#fff;
+  --good:#2b7a47;--good-bg:rgba(43,122,71,.1);--bad:#be3129;--bad-bg:rgba(190,49,41,.08);--warn:#a35a00;--on-good:#fff;--on-bad:#fff;--warn-bg:rgba(163,90,0,.1);
+  --grid:rgba(20,24,31,.07);--switch-off:#d9dce1;--code:#f6f7f8;--shadow:0 1px 2px rgba(20,24,31,.04);
+  --c-key:#1b5f8f;--c-str:#a3392f;--c-num:#3b45b5;--c-kw:#7d3a8f;--c-punc:#7a808a;
   --kiro:#7b5cff;--claude:#d97757;--or:#5b5fe8;
-  --icon-neutral:#8e8e93;--icon-saving:#34c759;--icon-budget:#ff9500;--icon-connect:#0a84ff;--icon-data:#5856d6;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#000;--surface:#1c1c1e;--surface-2:#232325;--panel:#141416;--fill:rgba(255,255,255,.07);--fill-2:rgba(255,255,255,.12);--line:rgba(255,255,255,.1);
-  --ink:#f5f5f7;--muted:#a1a1a6;--faint:#8e8e93;
-  --accent:#0a84ff;--accent-ink:#2997ff;--accent-soft:rgba(10,132,255,.18);--strong:#f5f5f7;--on-strong:#000;
-  --good:#30d158;--good-bg:rgba(48,209,88,.16);--bad:#ff453a;--bad-bg:rgba(255,69,58,.16);--warn:#ff9f0a;
-  --grid:rgba(255,255,255,.08);--switch-off:#39393d;--code:#111113;--shadow:none;--c-key:#67b7a4;--c-str:#fc6a5d;--c-num:#d0bf69;--c-kw:#fc5fa3;--c-punc:#8e8e93;--icon-neutral:#98989d;--icon-saving:#30d158;--icon-budget:#ff9f0a;--icon-connect:#0a84ff;--icon-data:#5e5ce6;color-scheme:dark}}
+  --bg:#0e0f11;--surface:#16171a;--surface-2:#1b1c20;--panel:#121316;--fill:rgba(255,255,255,.05);--fill-2:rgba(255,255,255,.09);--line:rgba(255,255,255,.08);
+  --ink:#ecedef;--muted:#a3a7ae;--faint:#80858d;
+  --accent:#8aaef0;--accent-ink:#9dbbf3;--on-accent:#0e1524;--accent-soft:rgba(138,174,240,.12);--strong:#ecedef;--on-strong:#0e0f11;
+  --good:#5cc486;--good-bg:rgba(92,196,134,.12);--bad:#f0756c;--bad-bg:rgba(240,117,108,.12);--warn:#e3a14a;--on-good:#0b1f12;--on-bad:#240b09;--warn-bg:rgba(227,161,74,.12);
+  --grid:rgba(255,255,255,.07);--switch-off:#33353a;--code:#111214;--shadow:none;--c-key:#79b8c9;--c-str:#e8897f;--c-num:#d3c27a;--c-kw:#d38bd8;--c-punc:#80858d;color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#000;--surface:#1c1c1e;--surface-2:#232325;--panel:#141416;--fill:rgba(255,255,255,.07);--fill-2:rgba(255,255,255,.12);--line:rgba(255,255,255,.1);
-  --ink:#f5f5f7;--muted:#a1a1a6;--faint:#8e8e93;
-  --accent:#0a84ff;--accent-ink:#2997ff;--accent-soft:rgba(10,132,255,.18);--strong:#f5f5f7;--on-strong:#000;
-  --good:#30d158;--good-bg:rgba(48,209,88,.16);--bad:#ff453a;--bad-bg:rgba(255,69,58,.16);--warn:#ff9f0a;
-  --grid:rgba(255,255,255,.08);--switch-off:#39393d;--code:#111113;--shadow:none;--c-key:#67b7a4;--c-str:#fc6a5d;--c-num:#d0bf69;--c-kw:#fc5fa3;--c-punc:#8e8e93;--icon-neutral:#98989d;--icon-saving:#30d158;--icon-budget:#ff9f0a;--icon-connect:#0a84ff;--icon-data:#5e5ce6;color-scheme:dark}
-
-
+  --bg:#0e0f11;--surface:#16171a;--surface-2:#1b1c20;--panel:#121316;--fill:rgba(255,255,255,.05);--fill-2:rgba(255,255,255,.09);--line:rgba(255,255,255,.08);
+  --ink:#ecedef;--muted:#a3a7ae;--faint:#80858d;
+  --accent:#8aaef0;--accent-ink:#9dbbf3;--on-accent:#0e1524;--accent-soft:rgba(138,174,240,.12);--strong:#ecedef;--on-strong:#0e0f11;
+  --good:#5cc486;--good-bg:rgba(92,196,134,.12);--bad:#f0756c;--bad-bg:rgba(240,117,108,.12);--warn:#e3a14a;--on-good:#0b1f12;--on-bad:#240b09;--warn-bg:rgba(227,161,74,.12);
+  --grid:rgba(255,255,255,.07);--switch-off:#33353a;--code:#111214;--shadow:none;--c-key:#79b8c9;--c-str:#e8897f;--c-num:#d3c27a;--c-kw:#d38bd8;--c-punc:#80858d;color-scheme:dark}

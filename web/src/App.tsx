@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import Overview from "./pages/Overview";
 import Requests from "./pages/Requests";
 import Settings from "./pages/Settings";
+import Flow from "./pages/Flow";
 export default function App() {
   const [theme, setTheme] = useTheme();
   const { path, go } = useRoute();
@@ -36,9 +37,9 @@ export default function App() {
     return () => controller.abort();
   }, [revision]);
   useEffect(() => {
-    document.title = `${path === "/requests" ? "Lịch sử" : path === "/settings" ? "Cài đặt" : path === "/login" ? "Đăng nhập" : "Tổng quan"} · TG Gateway`;
+    document.title = `${path === "/requests" ? "Lịch sử" : path === "/flow" ? "Sơ đồ" : path === "/settings" ? "Cài đặt" : path === "/login" ? "Đăng nhập" : "Tổng quan"} · TG Gateway`;
   }, [path]);
-  const headerTools = <><ThemeToggle theme={theme} setTheme={setTheme} /><span className="avatar" aria-label="Tài khoản">TG</span></>;
+  const headerTools = <ThemeToggle theme={theme} setTheme={setTheme} />;
   return (
     <div className="stage">
       <ProgressBar />
@@ -59,6 +60,8 @@ export default function App() {
               <Overview headerTools={headerTools} />
             ) : path === "/requests" ? (
               <Requests headerTools={headerTools} />
+            ) : path === "/flow" ? (
+              <Flow headerTools={headerTools} />
             ) : (
               <Settings headerTools={headerTools} />
             )}

@@ -9,7 +9,7 @@ export default {
         ? await env.GATEWAY.get(env.GATEWAY.idFromName("primary")).fetch(
             request,
           )
-        : /^\/(login|overview|requests|settings)\/?$/.test(path)
+        : /^\/(login|overview|requests|flow|settings)\/?$/.test(path)
           ? // Dashboard pages are client-side routes; serve the app shell.
             await env.ASSETS.fetch(new Request(new URL("/", request.url), request))
           : await env.ASSETS.fetch(request);

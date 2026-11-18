@@ -1,3 +1,4 @@
+import ActionIcon from "./ActionIcon";
 import { presentStep, stepDuration } from "../lib/steps";
 import type { Step, ProviderId } from "../../../src/dashboard/contract";
 import { fmtClock } from "../lib/format";
@@ -44,9 +45,9 @@ export default function Stepper({
               {s.state === "active"
                 ? ""
                 : s.state === "done"
-                  ? "✓"
+                  ? <ActionIcon name="check" size={14} />
                   : s.state === "error"
-                    ? "✕"
+                    ? <ActionIcon name="x" size={14} />
                     : s.state === "pending" ? index + 1 : "–"}
             </span>
             <div className="bd">

@@ -10,3 +10,7 @@ credentials*.json
 
 web/dist/
 .playwright-mcp/
+
+# Locally installed agent skills and agent work notes
+.claude/skills/
+.superpowers/

@@ -1,3 +1,4 @@
+import ActionIcon from "../../components/ActionIcon";
 import Button from "../../components/Button";
 import { useRef, useState, useEffect } from "react";
 import Row from "../../components/Row";
@@ -42,7 +43,7 @@ export default function Connect({ secrets }: SectionProps) {
             <code className="url" ref={ref}>
               {url}
             </code>
-            <Button className="btn full copy-button" loading={copying} onClick={copy}>{copied ? "✓ Đã chép" : "Sao chép URL"}</Button>
+            <Button className="btn full copy-button" loading={copying} onClick={copy}>{copied ? <><ActionIcon name="check" /> Đã chép</> : "Sao chép URL"}</Button>
             {message && <p role="status">{message}</p>}
           </Row>
         </div>

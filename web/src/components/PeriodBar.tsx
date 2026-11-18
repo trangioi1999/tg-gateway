@@ -1,4 +1,5 @@
 import Seg from "./Seg";
+import ActionIcon from "./ActionIcon";
 import { comparisonText, periodLabel, stepPeriod, type PeriodValue } from "../lib/period";
 export default function PeriodBar({
   value,
@@ -24,14 +25,14 @@ export default function PeriodBar({
           aria-label="Kỳ trước"
           onClick={() => onChange(stepPeriod(value, -1))}
         >
-          ‹
+          <ActionIcon name="chevron-left" />
         </button>
         <span>{periodLabel(value)}</span>
         <button
           aria-label="Kỳ sau"
           onClick={() => onChange(stepPeriod(value, 1))}
         >
-          ›
+          <ActionIcon name="chevron-right" />
         </button>
       </div>
       <span className="cmp">

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-export type Route = "/login" | "/overview" | "/requests" | "/settings";
+export type Route = "/login" | "/overview" | "/requests" | "/flow" | "/settings";
 export function go(path: string, { replace = false } = {}) {
   if (path === "/login" && location.pathname === "/login") return;
   if (replace) history.replaceState(null, "", path);
@@ -17,7 +17,7 @@ export function useRoute() {
   );
   const path = url.split("?")[0] as Route;
   return {
-    path: ["/login", "/overview", "/requests", "/settings"].includes(path)
+    path: ["/login", "/overview", "/requests", "/flow", "/settings"].includes(path)
       ? path
       : ("/overview" as Route),
     go,

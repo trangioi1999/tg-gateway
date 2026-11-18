@@ -14,6 +14,8 @@ export interface OverviewResponse {
   models: (Totals & { model: string; provider: ProviderId })[];
   clients: (Totals & { client: string })[];
   active: number; settings: Settings; generatedAt: number;
+  /** Start time of today's first prompt (viewer's local day, any period viewed), null if none yet. */
+  firstPromptToday: number | null;
 }
 export interface RequestRow {
   id: string; started: number; finished: number | null; endpoint: string; model: string;

@@ -1,3 +1,4 @@
+import ActionIcon from "./ActionIcon";
 import Skeleton from "./Skeleton";
 import { agentLabel, requestStatus } from "../lib/requestPresentation";
 import ErrorCard from "./ErrorCard";
@@ -142,11 +143,11 @@ export default function RequestDialog({
                   }
                 }}
               >
-                ■ Dừng
+                <ActionIcon name="stop" size={14} /> Dừng
               </Button>
             )}
             <button className="close" aria-label="Đóng" onClick={close}>
-              ✕
+              <ActionIcon name="x" />
             </button>
           </div>
         </div>
@@ -159,7 +160,8 @@ export default function RequestDialog({
               ["overview", "Tổng quan"],
               ["request", "Request"],
               ["response", "Response"],
-              ["error", "Lỗi"],
+              // Only failed requests have something to show here.
+              ...(r && r.status >= 400 ? [["error", "Lỗi"] as [Tab, string]] : []),
             ]}
           />
         </div>
@@ -265,7 +267,7 @@ export default function RequestDialog({
                     <div className="errbox">
                       <b>{r.error_code ?? `HTTP ${r.status}`}</b>
                       <span>
-                        {r.error_message ?? "Không có thông tin lỗi."}
+                        {r.error_message ?? "Không có thông tin lỗi"}
                       </span>
                       {r.error_code && hints[r.error_code] && (
                         <p>{hints[r.error_code]}</p>
@@ -276,7 +278,7 @@ export default function RequestDialog({
                     )}
                   </>
                 ) : (
-                  <p className="empty">Request không có lỗi.</p>
+                  <p className="empty">Request không có lỗi</p>
                 ))}
             </>
           )}

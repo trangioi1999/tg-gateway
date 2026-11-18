@@ -1,3 +1,4 @@
+import ActionIcon from "../components/ActionIcon";
 import type { ReactNode } from "react";
 import { useToast } from "../hooks/useToast";
 import Toast from "../components/Toast";
@@ -21,16 +22,18 @@ import RequestDialog from "../components/RequestDialog";
 import ConfirmClear from "../components/ConfirmClear";
 import { stopRequest } from "../api/requests";
 export default function Requests({ headerTools }: { headerTools: ReactNode }) {
-  const [period, setPeriod] = useState<PeriodValue>({
-      period: "day",
-      anchor: localDate(),
-    }),
-    [search, setSearch] = useState(() => new URLSearchParams(location.search).get("q") ?? ""),
-    [q, setQ] = useState(() => new URLSearchParams(location.search).get("q") ?? ""),
-    [status, setStatus] = useState(""),
-    [provider, setProvider] = useState(""),
-    [page, setPage] = useState(1),
-    [pageSize, setPageSize] = useState(10),
+  // Filters live in the URL, so a reload, Back or a shared link shows the same list.
+  const initial = new URLSearchParams(location.search);
+  const [period, setPeriod] = useState<PeriodValue>(() => ({
+      period: (["day", "week", "month"] as const).find((p) => p === initial.get("period")) ?? "day",
+      anchor: /^\d{4}-\d{2}-\d{2}$/.test(initial.get("anchor") ?? "") ? initial.get("anchor")! : localDate(),
+    })),
+    [search, setSearch] = useState(() => initial.get("q") ?? ""),
+    [q, setQ] = useState(() => initial.get("q") ?? ""),
+    [status, setStatus] = useState(() => ["success", "error", "active"].includes(initial.get("status") ?? "") ? initial.get("status")! : ""),
+    [provider, setProvider] = useState(() => initial.get("provider") ?? ""),
+    [page, setPage] = useState(() => Math.max(1, Math.floor(Number(initial.get("page")) || 1))),
+    [pageSize, setPageSize] = useState(() => [10, 25, 50, 100].includes(Number(initial.get("size"))) ? Number(initial.get("size")) : 10),
     [revision, refresh] = useState(0),
     [clear, setClear] = useState(false),
     [toast, setToast] = useToast(),
@@ -49,6 +52,18 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
     }, 300);
     return () => clearTimeout(timer);
   }, [q, search]);
+  useEffect(() => {
+    const url = new URLSearchParams();
+    if (period.period !== "day") url.set("period", period.period);
+    if (period.anchor !== localDate()) url.set("anchor", period.anchor);
+    if (q) url.set("q", q);
+    if (status) url.set("status", status);
+    if (provider) url.set("provider", provider);
+    if (page > 1) url.set("page", String(page));
+    if (pageSize !== 10) url.set("size", String(pageSize));
+    const search = url.toString();
+    history.replaceState(null, "", location.pathname + (search ? "?" + search : "") + location.hash);
+  }, [period, q, status, provider, page, pageSize]);
   const [exportError, setExportError] = useState("");
   const [exporting, setExporting] = useState(false);
   const params = new URLSearchParams(periodQuery(period));
@@ -83,10 +98,9 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
     <section className="page requests">
       <div className="top">
         <div>
-          <div className="crumb">Workspace</div>
           <h1>Lịch sử</h1>
           <p className="lead">
-            Bấm một request để xem nguồn gọi, payload, phản hồi và lỗi.
+            Bấm một request để xem nguồn gọi, payload, phản hồi và lỗi
           </p>
         </div>
         <div className="tools">
@@ -113,7 +127,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
               }
             }}
           >
-            {"↓ Xuất CSV"}
+            <ActionIcon name="download" />Xuất CSV
           </Button>
           <Button className="btn danger" onClick={() => setClear(true)}>
             Xóa log
@@ -127,7 +141,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
               refresh((n) => n + 1);
             }}
           >
-            ↻
+            <ActionIcon name="refresh" />
           </Button>
           {headerTools}
         </div>
@@ -151,7 +165,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         ].map(([label, value]) => (
           <article className="card" key={label}>
             <small>{label}</small>
-            <b className={`num${label === "Lỗi" ? " down" : label === "Token tiết kiệm" ? " up" : ""}`}>
+            <b className={`num${!value ? "" : label === "Lỗi" ? " down" : label === "Token tiết kiệm" ? " up" : ""}`}>
               {loading && !data ? <Skeleton /> : typeof value === "number" ? fmtCompact(value) : "—"}
             </b>
           </article>
@@ -160,10 +174,10 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
       <article className="card history-card">
         <div className="filters">
           <label className="search">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
             <input
               aria-label="Tìm request"
-              placeholder="Tìm agent, model, IP, mã lỗi…"
+              placeholder="Agent, model, IP, mã lỗi"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -214,7 +228,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         <div className={refetching ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} onStop={async (id) => {
           try {
             await stopRequest(id);
-            setToast("Đã dừng request.");
+            setToast("Đã dừng request");
           } catch (e) {
             setToast(e instanceof Error ? e.message : "Không thể dừng request.");
           }
@@ -249,7 +263,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
               aria-label="Trang trước"
               onClick={() => setPage((p) => p - 1)}
             >
-              ‹
+              <ActionIcon name="chevron-left" />
             </Button>
             <span>
               {page} / {pages}
@@ -260,13 +274,13 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
               aria-label="Trang sau"
               onClick={() => setPage((p) => p + 1)}
             >
-              ›
+              <ActionIcon name="chevron-right" />
             </Button>
           </div>
         </div>
       </article>
       <div className="keep">
-        <span>ⓘ</span>
+        <ActionIcon name="info" />
         <span>
           Xóa log chỉ xóa chi tiết từng request. Số tổng theo ngày, tuần, tháng
           được lưu riêng nên vẫn giữ nguyên.

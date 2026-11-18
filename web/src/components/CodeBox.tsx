@@ -1,3 +1,4 @@
+import { fmtBytes } from "../lib/format";
 import ActionIcon from "./ActionIcon";
 import Button from "./Button";
 import Seg from "./Seg";
@@ -69,10 +70,7 @@ export default function CodeBox({
         <span className="fn">
           <b>{raw && sse ? name : name.replace(/\.sse$/, ".json")}</b>
           <span>
-            {(new Blob([text]).size / 1024).toLocaleString("vi-VN", {
-              maximumFractionDigits: 1,
-            })}{" "}
-            KB · {display.split("\n").length} dòng
+            {fmtBytes(new Blob([text]).size)} · {display.split("\n").length} dòng
           </span>
         </span>
         <span className="acts">

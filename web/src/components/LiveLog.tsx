@@ -28,7 +28,7 @@ export default function LiveLog({ text, bytes, running }: { text: string; bytes:
           follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
       >
-        {text || (running ? "Đang chờ token đầu tiên…" : "Không có output.")}
+        {text || (running ? "Đang chờ token đầu tiên…" : "Không có output")}
         {running && <span className="cursor" aria-hidden="true" />}
       </pre>
       <p className="hint">Chỉ giữ trong bộ nhớ khi request đang chạy, không lưu lại.</p>

@@ -6,9 +6,13 @@ export function requestDate(started: number, now = new Date()) {
 }
 export function requestStatus(r: Pick<RequestRow, "status" | "error_code" | "optimizations">) {
   const tags = r.optimizations.split(",");
-  if (r.status === 0) return { tone: "run", label: "Đang chạy" };
-  if (r.status >= 400) return { tone: "err", label: r.error_code || String(r.status) };
-  return { tone: "ok", label: String(r.status) + (tags.includes("cache_hit") ? " · cache" : tags.includes("local_reply") ? " · local" : "") };
+  // One vocabulary for the column; the raw code is the tooltip (and in the detail view).
+  if (r.status === 0) return { tone: "run", label: "Đang chạy", detail: "Đang chạy" };
+  const code = [String(r.status), r.error_code].filter(Boolean).join(" · ");
+  if (r.error_code === "cancelled") return { tone: "err", label: "Đã dừng", detail: code };
+  if (r.status >= 400) return { tone: "err", label: "Lỗi " + r.status, detail: code };
+  const how = tags.includes("cache_hit") ? " · trả từ cache" : tags.includes("local_reply") ? " · trả tại gateway" : "";
+  return { tone: "ok", label: "Thành công", detail: code + how };
 }
 export function savingTags(optimizations: string, saved: number) {
   return [...new Set(optimizations.split(",").filter(Boolean).map(tag => {

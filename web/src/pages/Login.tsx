@@ -1,18 +1,26 @@
 import ActionIcon from "../components/ActionIcon";
 import Button from "../components/Button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Logo from "../components/Logo";
-import FlowDiagram from "./FlowDiagram";
 import { api, ApiError } from "../api/client";
 import { go } from "../router";
 export default function Login() {
   const [password, setPassword] = useState(""),
     [show, setShow] = useState(false),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [up, setUp] = useState<boolean | null>(null);
+  // Public health check: tells whether the gateway itself is reachable before signing in.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/health", { signal: controller.signal })
+      .then((r) => setUp(r.ok))
+      .catch(() => { if (!controller.signal.aborted) setUp(false); });
+    return () => controller.abort();
+  }, []);
   return (
-    <section className="login">
-      <div className="lform">
+    <section className="signin">
+      <div className="signin-card">
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -41,10 +49,8 @@ export default function Login() {
         >
           <Logo className="logo" />
           <div className="t">
-            <h1>
-              Chào mừng đến <span className="nowrap">TG Gateway</span>
-            </h1>
-            <p>Đăng nhập bằng mật khẩu quản trị để vào console.</p>
+            <h1>TG Gateway</h1>
+            <p>Console quản trị</p>
           </div>
           <div className="field">
             <label htmlFor="password">Mật khẩu</label>
@@ -71,7 +77,7 @@ export default function Login() {
             </div>
             {error && (
               <div role="alert" className="ferr">
-                <i>!</i>
+                <i aria-hidden="true">!</i>
                 {error}
               </div>
             )}
@@ -80,11 +86,14 @@ export default function Login() {
             {"Tiếp tục"}
           </Button>
         </form>
-        <div className="fine">
-          © {new Date().getFullYear()} TG Gateway · By Trần Giỏi
-        </div>
       </div>
-      <FlowDiagram />
+      <p className="signin-status" role="status">
+        <i className={up === null ? "dot wait" : up ? "dot" : "dot off"} aria-hidden="true" />
+        {up === null ? "Đang kiểm tra gateway" : up ? "Gateway đang hoạt động" : "Không kết nối được gateway"}
+      </p>
+      <div className="fine">
+        © {new Date().getFullYear()} TG Gateway · By Trần Giỏi
+      </div>
     </section>
   );
 }

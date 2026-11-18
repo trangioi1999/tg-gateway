@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Brand from "../components/Brand";
+import ActionIcon from "../components/ActionIcon";
 import Skeleton from "../components/Skeleton";
 import OverviewSkeleton from "../components/OverviewSkeleton";
 import ErrorCard from "../components/ErrorCard";
@@ -57,16 +58,23 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
     <section className="page overview">
       <div className="top">
         <div>
-          <h1>
-            {data ? `Xin chào, ${data.settings.displayName}` : "Tổng quan"}
-          </h1>
-          <p className="lead">
-            {data
-              ? data.settings.enabled
-                ? "Chào mừng trở lại. Gateway đang chạy ổn định."
-                : "Gateway đang tạm dừng."
-              : "Thống kê hoạt động gateway."}
+          <h1>Tổng quan</h1>
+          <p className="lead status-line">
+            {data ? (
+              <>
+                <i className={data.settings.enabled ? "dot" : "dot off"} aria-hidden="true" />
+                <span>
+                {data.settings.displayName} · {data.settings.enabled ? "đang nhận request" : "đang tạm dừng"} ·{" "}
+                <span title="Giờ của prompt đầu tiên hôm nay (không tính request chạy nền)">
+                  {data.firstPromptToday === null
+                    ? "hôm nay chưa có prompt"
+                    : <>bắt đầu hôm nay lúc <b className="num">{new Date(data.firstPromptToday).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false })}</b></>}
+                </span>
+                </span>
+              </>
+            ) : "Thống kê hoạt động gateway"}
           </p>
+
         </div>
         <div className="tools"><Button
           className="btn icon"
@@ -74,7 +82,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
             loading={loading || providers.loading || recent.loading}
           onClick={() => refresh((n) => n + 1)}
         >
-          ↻
+          <ActionIcon name="refresh" />
         </Button>{headerTools}</div>
       </div>
       <PeriodBar value={period} onChange={setPeriod} />
@@ -103,6 +111,21 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
         })}
       </div>
       {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
+      {data && providers.data && (!providers.data.providers.some(p => p.configured) || data.month.requests === 0) && (
+        <div className="onboard card">
+          <div>
+            <h2>{providers.data.providers.some(p => p.configured) ? "Chưa có request nào trong tháng" : "Chưa kết nối nhà cung cấp"}</h2>
+            <p className="sub">
+              {providers.data.providers.some(p => p.configured)
+                ? "Trỏ Claude Code hoặc client khác vào gateway bằng API key, số liệu sẽ hiện ở đây."
+                : "Thêm Kiro, Claude API hoặc OpenRouter để gateway bắt đầu nhận request."}
+            </p>
+          </div>
+          <a className="btn" href="/settings#connect" onClick={(e) => { e.preventDefault(); go("/settings#connect"); }}>
+            Mở Kết nối &amp; bảo mật <ActionIcon name="arrow-right" />
+          </a>
+        </div>
+      )}
       {loading && !data && <OverviewSkeleton />}
       {error && <ErrorCard message={error} onRetry={() => refresh(n => n + 1)} />}
       {data && t && p && (
@@ -128,6 +151,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <Kpi
                 comparison={comparisonText(period)}
                 label="Token"
+                better="none"
                 note={`vào ${fmtCompact(t.input_tokens)} · ra ${fmtCompact(t.output_tokens)}`}
                 value={fmtCompact(t.input_tokens + t.output_tokens)}
                 current={t.input_tokens + t.output_tokens}
@@ -171,7 +195,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <div className="head">
                 <div>
                   <h2>Ngân sách tháng</h2>
-                  <p className="sub">Credit quy đổi nội bộ</p>
+                  <p className="sub">Credit ước tính theo token, không phải số Kiro báo về</p>
                 </div>
               </div>
               <Gauge
@@ -183,7 +207,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
               <div className="head">
                 <div>
                   <h2>Tiết kiệm credit</h2>
-                  <p className="sub">Clear tool result · Compact · Cache</p>
+                  <p className="sub">Cắt tool result, nén context, cache</p>
                 </div>
               </div>
               <div className="savings">
@@ -228,7 +252,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
                   </div>
                 ))}
                 {!data.models.length && (
-                  <p className="empty">Chưa có dữ liệu model.</p>
+                  <p className="empty">Chưa có dữ liệu model</p>
                 )}
               </div>
             </article>
@@ -242,13 +266,14 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
             <p className="sub">Bấm một dòng để xem chi tiết</p>
           </div>
           <a
+            className="more"
             href="/requests"
             onClick={(e) => {
               e.preventDefault();
               go("/requests");
             }}
           >
-            Xem tất cả lịch sử →
+            Mở lịch sử <ActionIcon name="arrow-right" size={14} />
           </a>
         </div>
 
