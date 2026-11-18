@@ -12,7 +12,7 @@ export default function Kpi({
   value: string;
   current: number;
   previous: number;
-  better?: "up" | "down";
+  better?: "up" | "down" | "none";
   comparison: string;
   /** Extra detail after the label, e.g. the input/output split. */
   note?: string;
@@ -21,7 +21,7 @@ export default function Kpi({
     <article className="card kpi">
       <div className="k">{label}{note && <span className="kn">{note}</span>}</div>
       <strong className="num">{value}</strong>
-      <small><span className={previous === 0 || current === previous ? undefined : ((current > previous) === (better === "up") ? "up" : "down")}>{fmtDelta(current, previous)}</span> {comparison}</small>
+      <small><span className={better === "none" || previous === 0 || current === previous ? undefined : ((current > previous) === (better === "up") ? "up" : "down")}>{fmtDelta(current, previous)}</span> {comparison}</small>
     </article>
   );
 }

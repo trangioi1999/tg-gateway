@@ -1,3 +1,4 @@
+import { tone } from "./Gauge";
 import type { ProviderQuota, Totals } from "../../../src/dashboard/contract";
 import { fmtCompact } from "../lib/format";
 import { providerLabel } from "../lib/brands";
@@ -56,17 +57,19 @@ export default function QuotaCard({
               {id === "kiro" || !id ? "credit" : "USD"}
             </span>
           </div>
-          <div className="track">
+          <div className={"track " + tone(limit ? ((used ?? 0) / limit) * 100 : 0)}>
             <span
               style={{
-                width: `${limit ? Math.min(100, ((used ?? 0) / limit) * 100) : 0}%`,
+                transform: `scaleX(${limit ? Math.min(1, (used ?? 0) / limit) : 0})`,
               }}
             />
           </div>
           <div className="kf">
             <span>
               {limit
-                ? `Còn ${fmtCompact(Math.max(0, limit - (used ?? 0)))}`
+                ? (used ?? 0) > limit
+                  ? `Vượt ${fmtCompact((used ?? 0) - limit)}`
+                  : `Còn ${fmtCompact(limit - (used ?? 0))}`
                 : "Chưa đặt mục tiêu"}
             </span>
             {provider?.resetAt && (

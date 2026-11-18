@@ -1,3 +1,4 @@
+import ActionIcon from "./ActionIcon";
 import type { RequestRow } from "../../../src/dashboard/contract";
 import { fmtClock, fmtCredit, fmtInt, fmtMs } from "../lib/format";
 import { clientLabel, modelBrand, providerLabel } from "../lib/brands";
@@ -12,10 +13,10 @@ export default function RequestTable({ rows, compact = false, loading = false, r
   const columns = compact ? 8 : 11;
   return <div className="table-wrap" aria-busy={loading}>
     <table className={compact ? "request-table compact" : "request-table"}>
-      <colgroup>{(compact ? [12, 15, 24, 16, 14, 9, 8, 2] : [8, 10, 10, 14, 10, 12, 10, 9, 7, 7, 3]).map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
+      <colgroup>{(compact ? [12, 17, 22, 15, 14, 9, 8, 3] : [8, 12, 9, 13, 10, 11, 10, 9, 7, 7, 4]).map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
       <thead><tr>
         <th>Thời gian</th><th>Agent</th>{!compact && <th>Nguồn</th>}<th>Model</th>{!compact && <th>Nhà cung cấp</th>}<th>Trạng thái</th>
-        <th className="r">Input / output</th><th className="r">{compact ? "Credit" : "Quy đổi / Kiro"}</th>
+        <th className="r">Input / output</th><th className="r" title={compact ? "Credit ước tính theo token" : "Credit ước tính theo token / số Kiro báo về"}>Credit</th>
         {!compact && <th>Tiết kiệm</th>}<th className="r">Độ trễ</th><th aria-label="Chi tiết" />
       </tr></thead>
       <tbody>
@@ -27,16 +28,16 @@ export default function RequestTable({ rows, compact = false, loading = false, r
             {!compact && <td title={`${source.place} · ${source.ip}`}>{source.place}<small className="mono">{source.ip}</small></td>}
             <td className="mono nw" title={r.model + " · Qua " + providerLabel(r.provider)}><span className="cell-brand"><Brand id={modelBrand(r.model)} size={16} /><span>{r.model || "—"}</span></span></td>
             {!compact && <td className="nw" title={providerLabel(r.provider)}><span className="cell-brand"><Brand id={r.provider} size={16} /><span>{providerLabel(r.provider)}</span></span></td>}
-            <td title={status.label}><span className={`st ${status.tone}`}>{status.label}</span></td>
+            <td title={status.detail}><span className={`st ${status.tone}`}>{status.label}</span></td>
             <td className="r num" title={`${fmtInt(r.input_tokens)} / ${fmtInt(r.output_tokens)}`}>{fmtInt(r.input_tokens)} / {r.status === 0 ? "—" : fmtInt(r.output_tokens)}</td>
             <td className="r num">{r.status === 0 ? "—" : fmtCredit(r.estimated_credits)}{!compact && <> / {r.reported_credits === null ? "—" : fmtCredit(r.reported_credits)}</>}</td>
             {!compact && <td title={tags.join(", ")}><div className="saving-tags">{tags.length ? tags.map(tag => <span className={`tag${/^(clear|cache|compact|auto|bỏ)/.test(tag) ? " save" : ""}`} key={tag}>{tag}</span>) : "—"}</div></td>}
             <td className="r num">{r.status === 0 ? "—" : fmtMs(r.latency)}</td>{onStop && r.status === 0
-              ? <td className="r"><button type="button" className="stop" aria-label="Dừng request" title="Dừng request" onClick={e => { e.stopPropagation(); onStop(r.id); }} onKeyDown={e => e.stopPropagation()}>■</button></td>
-              : <td className="r chev" aria-hidden="true">›</td>}
+              ? <td className="r"><button type="button" className="stop" aria-label="Dừng request" title="Dừng request" onClick={e => { e.stopPropagation(); onStop(r.id); }} onKeyDown={e => e.stopPropagation()}><ActionIcon name="stop" size={14} /></button></td>
+              : <td className="r chev" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg></td>}
           </tr>;
         })}
-        {!loading && rows.length < rowCount && <tr className="table-remainder" aria-hidden={rows.length ? true : undefined}><td colSpan={columns} style={{ height: `calc(var(--request-row-height) * ${rowCount - rows.length})` }}>{!rows.length && <span className="empty">Chưa có request trong kỳ này.</span>}</td></tr>}
+        {!loading && rows.length < rowCount && <tr className="table-remainder" aria-hidden={rows.length ? true : undefined}><td colSpan={columns} style={{ height: `calc(var(--request-row-height) * ${rowCount - rows.length})` }}>{!rows.length && <span className="empty">Chưa có request trong kỳ này</span>}</td></tr>}
       </tbody>
     </table>
   </div>;

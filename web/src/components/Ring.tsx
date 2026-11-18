@@ -15,7 +15,7 @@ export default function Ring({ value }: { value: number }) {
         stroke="var(--grid)"
         strokeWidth="10"
       />
-      <circle
+      {pct > 0 && <circle
         cx="60"
         cy="60"
         r="50"
@@ -26,14 +26,14 @@ export default function Ring({ value }: { value: number }) {
         pathLength="100"
         strokeDasharray={`${pct} 100`}
         transform="rotate(-90 60 60)"
-      />
+      />}
       <text
         x="60"
         y="61"
         textAnchor="middle"
         fill="var(--ink)"
         fontSize="24"
-        fontWeight="700"
+        fontWeight="600"
       >
         {Math.round(pct)}%
       </text>

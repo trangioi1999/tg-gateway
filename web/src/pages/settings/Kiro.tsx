@@ -1,3 +1,4 @@
+import ActionIcon from "../../components/ActionIcon";
 import { useToast } from "../../hooks/useToast";
 import Toast from "../../components/Toast";
 import Skeleton from "../../components/Skeleton";
@@ -177,7 +178,7 @@ export default function Kiro({ draft, set, providers }: SectionProps) {
               {selectedFiles.length > 0 && <ul className="picked-files">
                 {selectedFiles.map((file, index) => <li key={`${file.name}-${file.lastModified}-${index}`}>
                   <span>{file.name}</span>
-                  <Button type="button" disabled={busy} aria-label={`Bỏ file ${file.name}`} onClick={() => setSelectedFiles(previous => previous.filter((_, i) => i !== index))}>×</Button>
+                  <Button type="button" disabled={busy} aria-label={`Bỏ file ${file.name}`} onClick={() => setSelectedFiles(previous => previous.filter((_, i) => i !== index))}><ActionIcon name="x" size={14} /></Button>
                 </li>)}
               </ul>}
             </div>

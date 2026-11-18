@@ -12,11 +12,13 @@ export default function SaveBar({
   message: ToastMessage;
   onSave: () => void;
 }) {
+  // The bar only appears when there is something to save; the toast floats on its own.
   return (
-    <div className="savebar">
+    <>
+    <Toast message={message} />
+    {(count > 0 || busy) && <div className="savebar section-enter">
       <div>
-        {count > 0 && <span>Có {count} thay đổi chưa lưu</span>}
-        <Toast message={message} />
+        <span>Có {count} thay đổi chưa lưu</span>
       </div>
       <Button
         className="btn primary"
@@ -25,6 +27,7 @@ export default function SaveBar({
       >
         {"Lưu cài đặt"}
       </Button>
-    </div>
+    </div>}
+    </>
   );
 }

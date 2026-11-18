@@ -1,5 +1,6 @@
 import Brand from "../components/Brand";
 import Logo from "../components/Logo";
+import ActionIcon, { type IconName } from "../components/ActionIcon";
 const nodes = [
   { x: 72, y: 70, l: "Claude Code", s: "CLI", b: "claude-code" },
   { x: 72, y: 165, l: "Cursor", s: "IDE", b: "cursor" },
@@ -7,9 +8,9 @@ const nodes = [
   { x: 72, y: 355, l: "Roo Code", s: "VS Code", b: "roo-code" },
   { x: 72, y: 450, l: "Kilo Code", s: "VS Code", b: "kilo-code" },
   { x: 245, y: 260, l: "TG Gateway", s: "xác thực · giới hạn", b: "logo" },
-  { x: 385, y: 260, l: "Tiết kiệm", s: "clear · compact · cache", b: "✂" },
-  { x: 520, y: 260, l: "Định tuyến", s: "theo tiền tố model", b: "⇉" },
-  { x: 385, y: 420, l: "Thống kê", s: "ngày · tuần · tháng", b: "▤" },
+  { x: 385, y: 260, l: "Tiết kiệm", s: "clear · compact · cache", b: "scissors" },
+  { x: 520, y: 260, l: "Định tuyến", s: "theo tiền tố model", b: "split" },
+  { x: 385, y: 420, l: "Thống kê", s: "ngày · tuần · tháng", b: "database" },
   { x: 688, y: 150, l: "Kiro", s: "Amazon Q", b: "kiro" },
   { x: 688, y: 260, l: "Claude API", s: "Anthropic", b: "anthropic" },
   { x: 688, y: 370, l: "OpenRouter", s: "Đa model", b: "openrouter" },
@@ -29,14 +30,7 @@ const edges = [
 ];
 export default function FlowDiagram() {
   return (
-    <div className="lflow">
-      <div>
-        <h2>Một cổng. Mọi model.</h2>
-        <p>
-          Mỗi request đi qua gateway, được tối ưu rồi chuyển tới đúng nhà cung
-          cấp.
-        </p>
-      </div>
+    <div className="lflow card">
       <svg
         className="flow"
         viewBox="0 0 760 520"
@@ -44,13 +38,13 @@ export default function FlowDiagram() {
         aria-label="Sơ đồ luồng agent qua TG Gateway tới nhà cung cấp"
       >
         <text className="col" x="72" y="26" textAnchor="middle">
-          AGENT
+          Agent
         </text>
         <text className="col" x="385" y="26" textAnchor="middle">
-          TG GATEWAY
+          TG Gateway
         </text>
         <text className="col" x="688" y="26" textAnchor="middle">
-          NHÀ CUNG CẤP
+          Nhà cung cấp
         </text>
         {edges.map(([a, b], i) => {
           const A = nodes[a],
@@ -142,15 +136,8 @@ export default function FlowDiagram() {
                 {i === 5 ? (
                   <Logo />
                 ) : i >= 6 && i <= 8 ? (
-                  <span
-                    className="lg"
-                    style={{
-                      width: 28,
-                      height: 28,
-                      background: ["var(--icon-saving)", "var(--icon-budget)", "var(--icon-data)"][i - 6],
-                    }}
-                  >
-                    {n.b}
+                  <span className="lg">
+                    <ActionIcon name={n.b as IconName} size={20} />
                   </span>
                 ) : (
                   <Brand id={n.b} size={28} />
@@ -187,16 +174,6 @@ export default function FlowDiagram() {
             <i style={{ background: "var(--good)" }} />
             Response về
           </span>
-        </div>
-        <div className="steps">
-          {["Xác thực", "Tiết kiệm credit", "Định tuyến", "Thống kê"].map(
-            (s, i) => (
-              <span key={s}>
-                <b>{i + 1}</b>
-                {s}
-              </span>
-            ),
-          )}
         </div>
       </div>
     </div>

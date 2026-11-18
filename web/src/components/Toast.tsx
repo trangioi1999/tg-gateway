@@ -12,5 +12,5 @@ export default function Toast({ message: notification }: { message: ToastMessage
     const remove = setTimeout(() => setVisible(""), 4000);
     return () => { clearTimeout(exit); clearTimeout(hide); clearTimeout(remove); };
   }, [message, notification.id]);
-  return visible ? <p className={`keep toast${closing ? " toast-closing" : ""}`} role="status">{visible}</p> : null;
+  return visible ? <p className={`toast${closing ? " toast-closing" : ""}`} role="status">{visible}</p> : null;
 }

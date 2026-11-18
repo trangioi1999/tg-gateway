@@ -23,3 +23,10 @@ export const fmtDelta = (cur: number, prev: number) =>
     : (cur >= prev ? "+" : "−") +
       number(Math.abs(((cur - prev) / prev) * 100)) +
       "%";
+/** 24 B, 3,4 KB, 1,2 MB. */
+export function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${kb.toLocaleString("vi-VN", { maximumFractionDigits: 1 })} KB`;
+  return `${(kb / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} MB`;
+}

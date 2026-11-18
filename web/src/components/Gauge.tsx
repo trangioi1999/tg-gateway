@@ -1,4 +1,8 @@
 import { fmtCompact } from "../lib/format";
+/** Usage level of a budget: warn from 80 %, over at 100 %. */
+export function tone(pct: number): "" | "warn" | "over" {
+  return pct >= 100 ? "over" : pct >= 80 ? "warn" : "";
+}
 export default function Gauge({
   used,
   limit,
@@ -7,8 +11,9 @@ export default function Gauge({
   limit: number;
 }) {
   const pct = limit ? (used / limit) * 100 : 0;
+  const level = tone(pct);
   return (
-    <div className="gauge">
+    <div className={"gauge " + level}>
       <svg viewBox="0 0 180 100" aria-hidden="true">
         <path
           d="M14 92a76 76 0 0 1 152 0"
@@ -20,7 +25,7 @@ export default function Gauge({
         {pct > 0 && <path
           d="M14 92a76 76 0 0 1 152 0"
           fill="none"
-          stroke="var(--accent)"
+          stroke={level === "over" ? "var(--bad)" : level === "warn" ? "var(--warn)" : "var(--accent)"}
           strokeWidth="12"
           strokeLinecap="round"
           pathLength="100"
@@ -33,9 +38,11 @@ export default function Gauge({
         <span>{fmtCompact(limit)}</span>
       </div>
       <span className="pill num">
-        {limit
-          ? `${fmtCompact(used)} / ${fmtCompact(limit)} credit`
-          : "Chưa đặt mục tiêu"}
+        {!limit
+          ? "Chưa đặt mục tiêu"
+          : used > limit
+            ? `Vượt ${fmtCompact(used - limit)} credit`
+            : `${fmtCompact(used)} / ${fmtCompact(limit)} credit`}
       </span>
     </div>
   );

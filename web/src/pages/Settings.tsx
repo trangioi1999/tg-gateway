@@ -9,6 +9,7 @@ import { useApi } from "../hooks/useApi";
 import { providersUrl } from "../lib/period";
 import SaveBar from "../components/SaveBar";
 import Brand from "../components/Brand";
+import ActionIcon, { type IconName } from "../components/ActionIcon";
 import General from "./settings/General";
 import Kiro from "./settings/Kiro";
 import ClaudeApi from "./settings/ClaudeApi";
@@ -23,14 +24,14 @@ import type {
   SettingsDraft,
 } from "./settings/types";
 const sections = [
-  ["general", "Chung", "⚙"],
+  ["general", "Chung", "sliders"],
   ["kiro", "Kiro", "kiro"],
   ["anthropic", "Claude API", "anthropic"],
   ["openrouter", "OpenRouter", "openrouter"],
-  ["saving", "Tiết kiệm credit", "✂"],
-  ["budget", "Ngân sách", "◇"],
-  ["connect", "Kết nối & bảo mật", "⇄"],
-  ["data", "Dữ liệu & log", "▤"],
+  ["saving", "Tiết kiệm credit", "scissors"],
+  ["budget", "Ngân sách", "wallet"],
+  ["connect", "Kết nối & bảo mật", "plug"],
+  ["data", "Dữ liệu & log", "database"],
 ] as const;
 const panels = {
   general: General,
@@ -122,7 +123,7 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
       });
       setDraft(response.settings);
       setSaved(response.settings);
-      setMessage("Đã lưu cài đặt.");
+      setMessage("Đã lưu cài đặt");
     } catch (e) {
       const labels: Record<string, string> = {
         invalid_settings: "Cài đặt không hợp lệ",
@@ -142,9 +143,8 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
     <section className="page settings">
       <div className="top">
         <div>
-          <div className="crumb">Workspace</div>
           <h1>Cài đặt</h1>
-          <p className="lead">Thay đổi áp dụng cho request mới.</p>
+          <p className="lead">Thay đổi áp dụng cho request mới</p>
         </div>
         <div className="tools">{headerTools}</div>
       </div>
@@ -164,25 +164,11 @@ export default function Settings({ headerTools }: { headerTools: ReactNode }) {
                     setSection(id);
                   }}
                 >
-                  <span
-                    className="si"
-                    style={{
-                      background: [
-                        "var(--icon-neutral)",
-                        "var(--fill)",
-                        "var(--fill)",
-                        "var(--fill)",
-                        "var(--icon-saving)",
-                        "var(--icon-budget)",
-                        "var(--icon-connect)",
-                        "var(--icon-data)",
-                      ][sections.findIndex(([key]) => key === id)],
-                    }}
-                  >
+                  <span className="si">
                     {["kiro", "anthropic", "openrouter"].includes(icon) ? (
                       <Brand id={icon} size={18} />
                     ) : (
-                      icon
+                      <ActionIcon name={icon as IconName} size={18} />
                     )}
                   </span>
                   {label}

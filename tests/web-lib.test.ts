@@ -131,11 +131,12 @@ test("KPI and period comparisons share Vietnamese labels", () => {
 
 import { requestDate, requestSource, requestStatus, savingTags } from "../web/src/lib/requestPresentation.ts";
 test("request table presents HTTP, provider errors and replay status", () => {
-  assert.deepEqual(requestStatus({ status: 0, error_code: null, optimizations: "" }), { tone: "run", label: "Đang chạy" });
-  assert.deepEqual(requestStatus({ status: 530, error_code: "kiro_http_530", optimizations: "" }), { tone: "err", label: "kiro_http_530" });
-  assert.equal(requestStatus({ status: 429, error_code: null, optimizations: "" }).label, "429");
-  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "cache_hit" }).label, "200 · cache");
-  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "local_reply" }).label, "200 · local");
+  assert.deepEqual(requestStatus({ status: 0, error_code: null, optimizations: "" }), { tone: "run", label: "Đang chạy", detail: "Đang chạy" });
+  assert.deepEqual(requestStatus({ status: 530, error_code: "kiro_http_530", optimizations: "" }), { tone: "err", label: "Lỗi 530", detail: "530 · kiro_http_530" });
+  assert.equal(requestStatus({ status: 499, error_code: "cancelled", optimizations: "" }).label, "Đã dừng");
+  assert.equal(requestStatus({ status: 429, error_code: null, optimizations: "" }).label, "Lỗi 429");
+  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "cache_hit" }).detail, "200 · trả từ cache");
+  assert.equal(requestStatus({ status: 200, error_code: null, optimizations: "local_reply" }).label, "Thành công");
 });
 test("request table derives savings, local sources and calendar dates", () => {
   assert.deepEqual(savingTags("cleared:8,compact_new,cache_hit,local_reply", 64000), ["clear −64K", "compact", "cache", "max_tokens=1"]);
