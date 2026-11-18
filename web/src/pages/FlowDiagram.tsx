@@ -116,7 +116,8 @@ export default function FlowDiagram() {
           );
         })}
         {nodes.map((n, i) => {
-          const h = i === 5 ? 76 : 54;
+          // Node box and icon sizes (viewBox units): the gateway a little larger.
+          const h = i === 5 ? 60 : 44, icon = i === 5 ? 36 : i >= 6 && i <= 8 ? 18 : 22;
           return (
             <g className="node" key={n.l}>
               <rect
@@ -125,37 +126,37 @@ export default function FlowDiagram() {
                 y={n.y - h / 2}
                 width={h}
                 height={h}
-                rx={i === 5 ? 19 : 14}
+                rx={i === 5 ? 15 : 11}
               />
               <foreignObject
-                x={n.x - (i === 5 ? 24 : 14)}
-                y={n.y - (i === 5 ? 24 : 14)}
-                width={i === 5 ? 48 : 28}
-                height={i === 5 ? 48 : 28}
+                x={n.x - icon / 2}
+                y={n.y - icon / 2}
+                width={icon}
+                height={icon}
               >
                 {i === 5 ? (
                   <Logo />
                 ) : i >= 6 && i <= 8 ? (
                   <span className="lg">
-                    <ActionIcon name={n.b as IconName} size={20} />
+                    <ActionIcon name={n.b as IconName} size={icon} />
                   </span>
                 ) : (
-                  <Brand id={n.b} size={28} />
+                  <Brand id={n.b} size={icon} />
                 )}
               </foreignObject>
               {i > 4 && (
-                <circle className="port" cx={n.x - h / 2} cy={n.y} r="3.5" />
+                <circle className="port" cx={n.x - h / 2} cy={n.y} r="3" />
               )}
               {i < 8 && (
-                <circle className="port" cx={n.x + h / 2} cy={n.y} r="3.5" />
+                <circle className="port" cx={n.x + h / 2} cy={n.y} r="3" />
               )}
-              <text x={n.x} y={n.y + h / 2 + 15} textAnchor="middle">
+              <text x={n.x} y={n.y + h / 2 + 16} textAnchor="middle">
                 {n.l}
               </text>
               <text
                 className="s"
                 x={n.x}
-                y={n.y + h / 2 + 28}
+                y={n.y + h / 2 + 30}
                 textAnchor="middle"
               >
                 {n.s}

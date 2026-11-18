@@ -121,7 +121,7 @@ export default function Overview({ headerTools }: { headerTools: ReactNode }) {
                 : "Thêm Kiro, Claude API hoặc OpenRouter để gateway bắt đầu nhận request."}
             </p>
           </div>
-          <a className="btn" href="/settings#connect" onClick={(e) => { e.preventDefault(); go("/settings#connect"); }}>
+          <a className="btn" href="/settings/connect" onClick={(e) => { e.preventDefault(); go("/settings/connect"); }}>
             Mở Kết nối &amp; bảo mật <ActionIcon name="arrow-right" />
           </a>
         </div>

@@ -1,9 +1,14 @@
-import ActionIcon from "./ActionIcon";
+import ActionIcon, { type IconName } from "./ActionIcon";
 import Logo from "./Logo";
 import Button from "./Button";
 import { useRoute } from "../router";
 import { api } from "../api/client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { ProvidersResponse } from "../../../src/dashboard/contract";
+import { useApi } from "../hooks/useApi";
+import { providersUrl } from "../lib/period";
+import Brand from "./Brand";
+import { currentSection, providerSections, sectionPath, visibleSections } from "../lib/settingsSections";
 import { BUILD, buildDetail, buildLabel } from "../build";
 import { useNewBuild } from "../hooks/useNewBuild";
 export default function Sidebar() {
@@ -11,6 +16,19 @@ export default function Sidebar() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const next = useNewBuild();
+  // Settings sections are sub-items of "Cài đặt"; provider ones only once configured.
+  const providers = useApi<ProvidersResponse>(providersUrl());
+  const [section, setSection] = useState(currentSection);
+  useEffect(() => {
+    const update = () => setSection(currentSection());
+    window.addEventListener("hashchange", update);
+    window.addEventListener("popstate", update);
+    return () => {
+      window.removeEventListener("hashchange", update);
+      window.removeEventListener("popstate", update);
+    };
+  }, []);
+  const settingsItems = visibleSections((id) => !!providers.data?.providers.some((p) => p.id === id && p.configured));
   return (
     <aside className="side">
       <div className="brand">
@@ -30,6 +48,7 @@ export default function Sidebar() {
             key={p}
             href={p}
             aria-current={path === p ? "page" : undefined}
+            className={p === "/settings" && path === p ? "has-sub" : undefined}
             onClick={(e) => {
               if (!e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
@@ -39,8 +58,31 @@ export default function Sidebar() {
           >
             <ActionIcon name={icon} size={18} />
             {label}
+            {p === "/settings" && (
+              <span className={"nav-caret" + (path === p ? " open" : "")} aria-hidden="true">
+                <ActionIcon name="chevron-right" size={14} />
+              </span>
+            )}
           </a>
         ))}
+        {path === "/settings" && (
+          <div className="subnav" role="group" aria-label="Mục cài đặt">
+            {settingsItems.map(([id, label, icon]) => (
+              <a
+                key={id}
+                href={sectionPath(id)}
+                aria-current={section === id ? "page" : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (section !== id) go(sectionPath(id));
+                }}
+              >
+                {providerSections.includes(id) ? <Brand id={icon} size={16} /> : <ActionIcon name={icon as IconName} size={16} />}
+                {label}
+              </a>
+            ))}
+          </div>
+        )}
       </nav>
       <div className="side-foot">
         {next && (

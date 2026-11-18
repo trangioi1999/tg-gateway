@@ -2,7 +2,8 @@ import ActionIcon from "./ActionIcon";
 import type { RequestRow } from "../../../src/dashboard/contract";
 import { fmtClock, fmtCredit, fmtInt, fmtMs } from "../lib/format";
 import { clientLabel, modelBrand, providerLabel } from "../lib/brands";
-import { agentLabel, requestDate, requestStatus, requestSource, savingTags } from "../lib/requestPresentation";
+import { agentLabel, requestDate, requestStatus, requestSource, savingDetails, savingTags } from "../lib/requestPresentation";
+import Tip from "./Tip";
 import Brand from "./Brand";
 import Skeleton from "./Skeleton";
 export default function RequestTable({ rows, compact = false, loading = false, rowCount = 10, onOpen, onStop }: {
@@ -13,7 +14,7 @@ export default function RequestTable({ rows, compact = false, loading = false, r
   const columns = compact ? 8 : 11;
   return <div className="table-wrap" aria-busy={loading}>
     <table className={compact ? "request-table compact" : "request-table"}>
-      <colgroup>{(compact ? [12, 17, 22, 15, 14, 9, 8, 3] : [8, 12, 9, 13, 10, 11, 10, 9, 7, 7, 4]).map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
+      <colgroup>{(compact ? [12, 17, 22, 15, 14, 9, 8, 3] : [8, 12, 9, 12, 10, 11, 8, 8, 11, 7, 4]).map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
       <thead><tr>
         <th>Thời gian</th><th>Agent</th>{!compact && <th>Nguồn</th>}<th>Model</th>{!compact && <th>Nhà cung cấp</th>}<th>Trạng thái</th>
         <th className="r">Input / output</th><th className="r" title={compact ? "Credit ước tính theo token" : "Credit ước tính theo token / số Kiro báo về"}>Credit</th>
@@ -31,7 +32,16 @@ export default function RequestTable({ rows, compact = false, loading = false, r
             <td title={status.detail}><span className={`st ${status.tone}`}>{status.label}</span></td>
             <td className="r num" title={`${fmtInt(r.input_tokens)} / ${fmtInt(r.output_tokens)}`}>{fmtInt(r.input_tokens)} / {r.status === 0 ? "—" : fmtInt(r.output_tokens)}</td>
             <td className="r num">{r.status === 0 ? "—" : fmtCredit(r.estimated_credits)}{!compact && <> / {r.reported_credits === null ? "—" : fmtCredit(r.reported_credits)}</>}</td>
-            {!compact && <td title={tags.join(", ")}><div className="saving-tags">{tags.length ? tags.map(tag => <span className={`tag${/^(clear|cache|compact|auto|bỏ)/.test(tag) ? " save" : ""}`} key={tag}>{tag}</span>) : "—"}</div></td>}
+            {!compact && <td>{tags.length ? (
+              <Tip className="saving-tags" content={<>
+                <b className="tip-t">Gateway đã tiết kiệm</b>
+                <ul>{savingDetails(r.optimizations).map(d => <li key={d}>{d}</li>)}</ul>
+                {r.saved_tokens > 0 && <p className="tip-f">Tổng ≈ {fmtInt(r.saved_tokens)} token không phải gửi</p>}
+              </>}>
+                <span className={`tag${/^(clear|cache|compact|model|bỏ|local)/.test(tags[0]) ? " save" : ""}`}>{tags[0]}</span>
+                {tags.length > 1 && <span className="tag more">+{tags.length - 1}</span>}
+              </Tip>
+            ) : "—"}</td>}
             <td className="r num">{r.status === 0 ? "—" : fmtMs(r.latency)}</td>{onStop && r.status === 0
               ? <td className="r"><button type="button" className="stop" aria-label="Dừng request" title="Dừng request" onClick={e => { e.stopPropagation(); onStop(r.id); }} onKeyDown={e => e.stopPropagation()}><ActionIcon name="stop" size={14} /></button></td>
               : <td className="r chev" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 6 6 6-6 6" /></svg></td>}

@@ -15,7 +15,8 @@ export function useRoute() {
     subscribe,
     () => location.pathname + location.search,
   );
-  const path = url.split("?")[0] as Route;
+  // /settings/<section> is the settings page with a section selected.
+  const path = url.split("?")[0].replace(/^\/settings\/[a-z-]+\/?$/, "/settings") as Route;
   return {
     path: ["/login", "/overview", "/requests", "/flow", "/settings"].includes(path)
       ? path

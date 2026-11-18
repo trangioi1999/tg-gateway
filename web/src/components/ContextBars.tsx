@@ -55,25 +55,47 @@ export default function ContextBars({ sizes }: { sizes: ContextSizes }) {
             </li>
           ))}
         </ul>
-        {!!sizes.toolList?.length && (
-          <details className="ctx-tools">
-            <summary>
-              Từng tool ({sizes.toolList.length}
-              {sizes.toolList.some((t) => t.dropped) && `, đã bỏ ${sizes.toolList.filter((t) => t.dropped).length}`})
-            </summary>
-            <ul>
-              {sizes.toolList.map((t) => (
-                <li key={t.name} className={t.dropped ? "dropped" : ""}>
-                  <span className="mono">{t.name}</span>
-                  {t.dropped && <span className="tag">không gửi</span>}
-                  <span className="num">{fmtCompact(t.tokens)}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
+        {!!sizes.toolList?.length && <ToolList tools={sizes.toolList} />}
         <p className="hint">Ước tính theo số byte / 4, chỉ lưu con số, không lưu nội dung.</p>
       </div>
     </div>
+  );
+}
+
+/** Tools in two groups, sent and not sent (Settings → tool list), each with its token total. */
+function ToolList({ tools }: { tools: NonNullable<ContextSizes["toolList"]> }) {
+  const sent = tools.filter((t) => !t.dropped), dropped = tools.filter((t) => t.dropped);
+  const max = Math.max(1, ...tools.map((t) => t.tokens));
+  const total = (list: typeof tools) => list.reduce((n, t) => n + t.tokens, 0);
+  const group = (list: typeof tools, title: string, note: string, kind: "sent" | "dropped") =>
+    list.length > 0 && (
+      <section className={"tg " + kind}>
+        <h4>
+          <span className="tg-dot" aria-hidden="true" />
+          {title} <b className="num">{list.length}</b>
+          <span className="tg-note">{note} {fmtCompact(total(list))} token</span>
+        </h4>
+        <ul>
+          {list.map((t) => (
+            <li key={t.name} title={`${t.name} · ≈ ${fmtInt(t.tokens)} token`}>
+              <span className="mono">{t.name}</span>
+              <span className="tg-bar" aria-hidden="true"><i style={{ width: `${(t.tokens / max) * 100}%` }} /></span>
+              <span className="num">{fmtCompact(t.tokens)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  return (
+    <details className="ctx-tools">
+      <summary>
+        Từng tool <span className="num">{tools.length}</span>
+        {dropped.length > 0 && <span className="tag save">bỏ {dropped.length} · −{fmtCompact(total(dropped))} token</span>}
+      </summary>
+      <div className="tg-wrap">
+        {group(sent, "Đã gửi", "", "sent")}
+        {group(dropped, "Không gửi", "tiết kiệm", "dropped")}
+      </div>
+    </details>
   );
 }
