@@ -772,3 +772,43 @@ test("running request: live output in the detail view, stop from the dashboard",
     await mf.dispose();
   }
 });
+
+test("session IDs and context breakdown: Claude Code session, Kiro conversationId, stable mode", async () => {
+  const mf = gateway(recording);
+  try {
+    const { send, calls } = await signedIn(mf);
+    const s = (await (await send("/api/settings")).json()).settings;
+    assert.equal(s.stableConversationId, false);
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0 }) })).status, 200);
+    const session = "0b9c7a52-1f0e-4d2b-9c39-6a7e5d4c3b2a";
+    const turn = (messages) =>
+      send("/v1/messages", {
+        method: "POST",
+        headers: { "x-claude-code-session-id": session },
+        body: JSON.stringify({ model: "claude-sonnet-4.5", max_tokens: 100, system: "You are Claude Code, Anthropic's official CLI for Claude.", metadata: { user_id: "u" }, messages }),
+      });
+    const first = [{ role: "user", content: "feature A" }];
+    const second = [...first, { role: "assistant", content: "done" }, { role: "user", content: "fix bug of A" }];
+    const conversationIds = async () => (await calls()).map((p) => p.conversationState.conversationId);
+    assert.equal((await turn(first)).status, 200);
+    assert.equal((await turn(second)).status, 200);
+    let ids = await conversationIds();
+    assert.notEqual(ids[0], ids[1], "default: a new conversationId per request");
+    const rows = (await (await send("/api/requests?q=" + session)).json()).items;
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].claude_session, session);
+    assert.ok(ids.includes(rows[0].kiro_conversation));
+    const context = JSON.parse(rows[0].context);
+    assert.ok(context.system > 0 && context.current > 0 && context.total > 0);
+    assert.ok(context.messages > 0, "the second turn carries the first one");
+    // Experimental: one conversationId for the whole thread.
+    assert.equal((await send("/api/settings", { method: "PUT", body: JSON.stringify({ ...s, responseCacheSeconds: 0, stableConversationId: true }) })).status, 200);
+    assert.equal((await turn(first)).status, 200);
+    assert.equal((await turn(second)).status, 200);
+    ids = await conversationIds();
+    assert.equal(ids[2], ids[3], "stable: same thread, same conversationId");
+    assert.notEqual(ids[2], ids[0]);
+  } finally {
+    await mf.dispose();
+  }
+});

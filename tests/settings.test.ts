@@ -57,3 +57,14 @@ test("autoModeTarget: only the classifier, only on Kiro, only to an enabled mode
   assert.doesNotThrow(() => validateSettings({ ...s, autoModeModel: "" }));
   assert.throws(() => validateSettings({ ...s, autoModeModel: "anthropic/x y" }));
 });
+
+import { detectSession } from "../src/clients.ts";
+test("detectSession: Claude Code header or metadata.user_id, nothing else", () => {
+  const id = "0b9c7a52-1f0e-4d2b-9c39-6a7e5d4c3b2a";
+  const none = new Headers();
+  assert.equal(detectSession(new Headers({ "x-claude-code-session-id": id.toUpperCase() }), {}), id);
+  assert.equal(detectSession(none, { metadata: { user_id: `user_abc_account_x_session_${id}` } }), id);
+  assert.equal(detectSession(none, { metadata: { user_id: JSON.stringify({ device_id: "d", session_id: id }) } }), id);
+  assert.equal(detectSession(none, { metadata: { user_id: "test" } }), null);
+  assert.equal(detectSession(new Headers({ "x-claude-code-session-id": "not-a-uuid" }), null), null);
+});

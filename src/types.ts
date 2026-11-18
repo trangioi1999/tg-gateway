@@ -40,6 +40,11 @@ export interface Settings {
    * model is enabled in `models`.
    */
   autoModeModel: string;
+  /**
+   * Experimental: reuse one Kiro conversationId per conversation thread instead of a new
+   * one per request, to measure whether Kiro charges less. Off by default.
+   */
+  stableConversationId: boolean;
   /** Replay identical completed requests from memory for this long (0 = off). */
   responseCacheSeconds: number;
   /** Name shown in the console header. */
@@ -70,6 +75,7 @@ export const defaults: Settings = {
   compactKeepTokens: 30_000,
   compactModel: "claude-haiku-4.5",
   autoModeModel: "claude-sonnet-5.5",
+  stableConversationId: false,
   responseCacheSeconds: 300,
   displayName: "Admin",
   capturePayloads: "off",
@@ -158,7 +164,7 @@ export function validateSettings(raw: unknown): Settings {
     s.anthropicMonthlyBudgetUsd > 1e6
   )
     throw new HttpError(400, "invalid_settings", "Invalid anthropicMonthlyBudgetUsd.");
-  for (const key of ["clearToolResults", "clearToolInputs", "compactEnabled"] as const)
+  for (const key of ["clearToolResults", "clearToolInputs", "compactEnabled", "stableConversationId"] as const)
     if (typeof s[key] !== "boolean")
       throw new HttpError(400, "invalid_settings", `Invalid ${key}.`);
   if (s.compactKeepTokens >= s.compactTriggerTokens)

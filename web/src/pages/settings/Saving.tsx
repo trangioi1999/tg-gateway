@@ -100,6 +100,21 @@ export default function Saving({ draft, set }: SectionProps) {
           tại chỗ.
         </p>
       </div>
+      <div className="group">
+        <h3>Thử nghiệm</h3>
+        <div className="rows">
+          <Row
+            label="Giữ conversationId theo phiên"
+            note="Dùng một conversationId Kiro cho cả một mạch hội thoại (phiên chính, mỗi subagent riêng) thay vì ID mới mỗi request. Bật để đo xem Kiro có tính credit ít hơn không; Claude Code vẫn gửi đủ lịch sử."
+          >
+            <Switch
+              label="Giữ conversationId theo phiên"
+              value={draft.stableConversationId}
+              onChange={(v) => set("stableConversationId", v)}
+            />
+          </Row>
+        </div>
+      </div>
     </>
   );
 }

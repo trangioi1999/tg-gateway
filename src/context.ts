@@ -230,3 +230,57 @@ export function applySummary(turns: Obj[], cut: number, summary: string): Obj[] 
   tail[0] = { userInputMessage: message };
   return tail;
 }
+
+// ---------------------------------------------------------------------------------------
+// What a Kiro request is made of, for the dashboard (token estimates only, no content).
+
+export interface ContextBreakdown {
+  system: number;
+  tools: number;
+  /** User and assistant text of earlier turns. */
+  messages: number;
+  toolResults: number;
+  toolInputs: number;
+  /** The current user turn: new message and the results of the tools it answers. */
+  current: number;
+}
+
+export function contextBreakdown(c: Conversation): ContextBreakdown {
+  const size = (v: unknown) => estimateTokens(typeof v === "string" ? v : JSON.stringify(v ?? ""));
+  const b: ContextBreakdown = { system: size(c.system), tools: c.tools.length ? size(c.tools) : 0, messages: 0, toolResults: 0, toolInputs: 0, current: 0 };
+  const last = c.turns.length - 1;
+  c.turns.forEach((turn, index) => {
+    const user = turn.userInputMessage,
+      assistant = turn.assistantResponseMessage;
+    if (index === last) {
+      b.current = size(user?.content) + size(user?.userInputMessageContext?.toolResults ?? "");
+      return;
+    }
+    if (user) {
+      b.messages += size(user.content);
+      const results = user.userInputMessageContext?.toolResults;
+      if (results?.length) b.toolResults += size(results);
+    } else if (assistant) {
+      b.messages += size(assistant.content);
+      if (assistant.toolUses?.length) b.toolInputs += size(assistant.toolUses);
+    }
+  });
+  return b;
+}
+
+/**
+ * Experimental (Settings → stableConversationId): one Kiro conversationId per conversation
+ * thread, derived from the Claude Code session and the thread's first turn (system prompt +
+ * first user message), so the main session, each subagent and each classifier call get
+ * their own. Formatted as a version-4-style UUID.
+ */
+export async function stableConversationId(session: string | null, c: Conversation): Promise<string> {
+  const first = c.turns[0]?.userInputMessage;
+  const seed = JSON.stringify([session ?? "", c.system, first?.content ?? ""]);
+  const digest = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(seed)));
+  const h = digest.slice(0, 32).split("");
+  h[12] = "4";
+  h[16] = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  const s = h.join("");
+  return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
+}

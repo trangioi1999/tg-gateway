@@ -86,3 +86,21 @@ export function detectAgent(body: unknown): string | null {
   if (/Claude Code|Anthropic's official CLI for Claude/.test(system)) return "subagent";
   return null;
 }
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+/** "…_session_<uuid>" (older) or {"session_id":"<uuid>"} (JSON string) in metadata.user_id. */
+const SESSION_IN_USER_ID = new RegExp(`session(?:_id)?["']?\\s*[:_=]\\s*["']?(${UUID})`, "i");
+const SESSION_HEADER = new RegExp(`^${UUID}$`, "i");
+
+/**
+ * Claude Code session that sent the request (the name of its local transcript file,
+ * ~/.claude/projects/<project>/<session>.jsonl), from the x-claude-code-session-id header or
+ * metadata.user_id. Null for other clients. Display and grouping only.
+ */
+export function detectSession(headers: Headers, body: unknown): string | null {
+  const header = headers.get("x-claude-code-session-id")?.trim();
+  if (header && SESSION_HEADER.test(header)) return header.toLowerCase();
+  const userId = (body as Record<string, any> | null)?.metadata?.user_id;
+  if (typeof userId !== "string") return null;
+  return SESSION_IN_USER_ID.exec(userId)?.[1].toLowerCase() ?? null;
+}

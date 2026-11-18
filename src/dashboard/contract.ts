@@ -25,6 +25,12 @@ export interface RequestRow {
   user_agent: string | null; upstream_host: string | null; ttfb: number | null;
   /** "main", "subagent", "auto-mode" or a `[agent:name]` marker; null if unknown. */
   agent: string | null;
+  /** Claude Code session (its local transcript file name); null for other clients. */
+  claude_session: string | null;
+  /** conversationId sent to Kiro (Kiro route only). */
+  kiro_conversation: string | null;
+  /** JSON ContextSizes: estimated tokens per part of the Kiro request. */
+  context: string | null;
 }
 export interface RequestList { page: number; pageSize: number; total: number; items: RequestRow[]; summary: Totals; range: Range }
 export type StepKey = "received" | "auth" | "optimize" | "cache" | "local" | "upstream" | "stream" | "done" | "error";
