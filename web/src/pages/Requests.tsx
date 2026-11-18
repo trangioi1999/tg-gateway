@@ -19,6 +19,7 @@ import PeriodBar from "../components/PeriodBar";
 import RequestTable from "../components/RequestTable";
 import RequestDialog from "../components/RequestDialog";
 import ConfirmClear from "../components/ConfirmClear";
+import { stopRequest } from "../api/requests";
 export default function Requests({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
       period: "week",
@@ -60,6 +61,21 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
     "/api/requests?" + params,
     revision,
   );
+  // While requests are running, refresh quietly every 2 s so their status stays current.
+  // Quiet = the current list is being reloaded by the timer (no loading fade).
+  const query = params.toString();
+  const [quietFor, setQuietFor] = useState("");
+  const quiet = quietFor === query;
+  const running = data?.items.some((r) => r.status === 0) ?? false;
+  useEffect(() => {
+    if (!running || loading || selected) return;
+    const timer = setTimeout(() => {
+      setQuietFor(query);
+      refresh((n) => n + 1);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [running, loading, selected, query]);
+  const refetching = loading && !!data && !quiet;
   const providers = useApi<ProvidersResponse>(providersUrl());
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
   const summary = data?.summary;
@@ -105,8 +121,11 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
           <Button
             className="btn icon"
             aria-label="Làm mới" rotate
-            loading={loading}
-            onClick={() => refresh((n) => n + 1)}
+            loading={loading && !quiet}
+            onClick={() => {
+              setQuietFor("");
+              refresh((n) => n + 1);
+            }}
           >
             ↻
           </Button>
@@ -123,7 +142,7 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
       {providers.error && <ErrorCard message={providers.error} onRetry={providers.retry} />}
       {exportError && <p className="error" role="alert">{exportError}</p>}
       <Toast message={toast} />
-      <div className={loading && data ? "summary refetching" : "summary"}>
+      <div className={refetching ? "summary refetching" : "summary"}>
         {[
           ["Request", summary?.requests],
           ["Lỗi", summary?.failed],
@@ -192,7 +211,15 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
         </div>
 
         {error && <ErrorCard message={error} onRetry={() => refresh(n => n + 1)} />}
-        <div className={loading && data ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} /></div>
+        <div className={refetching ? "refetching" : ""}><RequestTable rows={data?.items ?? []} loading={loading && !data} rowCount={pageSize} onOpen={setSelected} onStop={async (id) => {
+          try {
+            await stopRequest(id);
+            setToast("Đã dừng request.");
+          } catch (e) {
+            setToast(e instanceof Error ? e.message : "Không thể dừng request.");
+          }
+          refresh((n) => n + 1);
+        }} /></div>
         <div className="pager">
           <span>
             {data?.total
@@ -251,6 +278,8 @@ export default function Requests({ headerTools }: { headerTools: ReactNode }) {
           id={selected}
           onClose={() => {
             setSelected("");
+            setQuietFor(query);
+            refresh((n) => n + 1);
             history.replaceState(null, "", location.pathname + location.search);
           }}
         />

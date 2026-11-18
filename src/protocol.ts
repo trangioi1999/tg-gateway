@@ -83,6 +83,8 @@ export interface Prepared {
   ignored: string[];
   /** Client's max_tokens / max_completion_tokens (Kiro itself has no output limit). */
   maxTokens?: number;
+  /** stop_sequences (Anthropic) / stop (OpenAI); Kiro has none, applied by the gateway. */
+  stopSequences: string[];
   /** Kiro tool name → client tool name, for tools renamed to fit Kiro's naming rules. */
   toolNames: Map<string, string>;
   payload: Obj;
@@ -127,6 +129,19 @@ function resultContent(content: unknown): string {
     )
     .join("\n");
 }
+const MAX_STOP_SEQUENCES = 16;
+/** Validated stop sequences: a string or an array of non-empty strings. */
+function stopList(value: unknown): string[] {
+  if (value == null) return [];
+  const list = typeof value === "string" ? [value] : value;
+  if (
+    !Array.isArray(list) ||
+    list.length > MAX_STOP_SEQUENCES ||
+    !list.every((v) => typeof v === "string" && v.length > 0 && v.length <= 1000)
+  )
+    invalid(`Stop sequences must be up to ${MAX_STOP_SEQUENCES} non-empty strings.`);
+  return [...new Set(list as string[])];
+}
 export function prepare(
   body: unknown,
   mode: "openai" | "anthropic",
@@ -155,8 +170,6 @@ export function prepare(
   for (const field of [
     "response_format",
     "reasoning_effort",
-    "stop",
-    "stop_sequences",
     "seed",
     "logprobs",
     "frequency_penalty",
@@ -165,6 +178,7 @@ export function prepare(
     if (body[field] != null)
       invalid(`${field} is not supported by this adapter.`);
   if (body.n != null && body.n !== 1) invalid("Only n=1 is supported.");
+  const stopSequences = stopList(body[mode === "openai" ? "stop" : "stop_sequences"]);
   if (
     body.tool_choice != null &&
     body.tool_choice !== "auto" &&
@@ -357,6 +371,7 @@ export function prepare(
     includeUsage: body.stream_options?.include_usage === true,
     ignored,
     maxTokens: body.max_tokens ?? body.max_completion_tokens,
+    stopSequences,
     toolNames: new Map([...toolNames].filter(([kiro, client]) => kiro !== client)),
     payload,
     estimatedInput: estimateTokens(JSON.stringify(payload)),
@@ -546,7 +561,17 @@ export class Completion {
   contextPercent: number | null = null;
   terminal = false;
   /** Set when the answer stopped for a reason other than end of turn / tool use. */
-  stopReason?: "max_tokens";
+  stopReason?: "max_tokens" | "stop_sequence";
+  /** The stop sequence that ended the answer (it is not part of `text`). */
+  stopSequence?: string;
+  /**
+   * Kiro cannot stop on a sequence, so the gateway cuts the text at the first match and
+   * drops whatever Kiro sends after it. Text that could be the start of a sequence is held
+   * back until the next chunk shows it is not.
+   */
+  stopSequences: string[] = [];
+  /** Characters of `text` already handed out by accept(). */
+  private released = 0;
   /** Kiro tool name → client tool name (see Prepared.toolNames). */
   toolNames?: Map<string, string>;
   active?: ToolCall;
@@ -565,10 +590,31 @@ export class Completion {
       );
     const type = headers[":event-type"] ?? "";
     const d = object(raw[type]) ? raw[type] : raw;
+    const stopped = this.stopReason === "stop_sequence";
     if (type === "assistantResponseEvent" && typeof d.content === "string") {
+      if (stopped) return {};
+      if (!this.stopSequences.length) {
+        this.text += d.content;
+        return { text: d.content };
+      }
+      const from = Math.max(0, this.text.length - this.longestStop() + 1);
       this.text += d.content;
-      return { text: d.content };
+      let cut = -1;
+      for (const seq of this.stopSequences) {
+        const at = this.text.indexOf(seq, from);
+        if (at >= 0 && (cut < 0 || at < cut)) {
+          cut = at;
+          this.stopSequence = seq;
+        }
+      }
+      if (cut >= 0) {
+        this.text = this.text.slice(0, cut);
+        this.stopReason = "stop_sequence";
+        return this.release(this.text.length);
+      }
+      return this.release(this.text.length - this.longestStop() + 1);
     }
+    if (stopped && type === "toolUseEvent") return {};
     if (type === "toolUseEvent") {
       if (typeof d.name === "string") {
         if (this.active && this.active.id !== d.toolUseId)
@@ -613,7 +659,8 @@ export class Completion {
         tool.name = this.toolNames?.get(tool.name) ?? tool.name;
         this.tools.push(tool);
         this.active = undefined;
-        return { tool };
+        // Text held back for stop sequences goes out before the tool call.
+        return { ...this.release(this.text.length), tool };
       }
     }
     if (
@@ -639,6 +686,20 @@ export class Completion {
       this.outputSource = "reported";
     }
     return {};
+  }
+  private longestStop() {
+    return Math.max(1, ...this.stopSequences.map((s) => s.length));
+  }
+  /** Hands out text up to `upTo` that has not been handed out yet. */
+  private release(upTo: number): { text?: string } {
+    if (upTo <= this.released) return {};
+    const text = this.text.slice(this.released, upTo);
+    this.released = upTo;
+    return { text };
+  }
+  /** Text still held back when the stream ends. */
+  flush(): string {
+    return this.release(this.text.length).text ?? "";
   }
   finalize() {
     if (this.outputSource === "estimated")

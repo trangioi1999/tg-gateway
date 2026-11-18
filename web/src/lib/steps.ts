@@ -12,6 +12,7 @@ export function presentStep(step: Step): Step {
       not_kiro: "Chỉ áp dụng cho Kiro",
       compact: "Dùng bản tóm tắt đã lưu",
       compact_new: "Tóm tắt phần đầu hội thoại",
+      auto_mode_model: "Bộ phân loại auto mode chạy bằng model rẻ hơn",
     };
     detail = detail.split(" · ").map(code => {
       const cleared = /^cleared:(\d+)$/.exec(code);

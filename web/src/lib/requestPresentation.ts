@@ -16,6 +16,7 @@ export function savingTags(optimizations: string, saved: number) {
     if (tag === "compact_new" || tag === "compact") return "compact";
     if (tag === "cache_hit") return "cache";
     if (tag === "local_reply") return "max_tokens=1";
+    if (tag === "auto_mode_model") return "auto→model rẻ";
     return tag;
   }))];
 }
@@ -23,3 +24,10 @@ export function requestSource(r: Pick<RequestRow, "ip" | "city" | "country">) {
   const local = !!r.ip && /^(::1|127\.|localhost$|local$|::ffff:127\.)/.test(r.ip);
   return { place: [r.city, r.country].filter(Boolean).join(", ") || (local ? "local" : "—"), ip: local ? "local" : r.ip || "—" };
 }
+const agents: Record<string, string> = {
+  main: "Phiên chính",
+  subagent: "Subagent",
+  "auto-mode": "Phân loại auto mode",
+};
+/** Agent that sent the request (see detectAgent): built-in kinds translated, markers as written. */
+export const agentLabel = (agent: string | null) => (agent ? agents[agent] ?? agent : "");

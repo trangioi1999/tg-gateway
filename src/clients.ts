@@ -49,3 +49,40 @@ export function detectClient(headers: Headers): ClientId {
     return headers.get("anthropic-version") ? "anthropic-sdk" : "openai-sdk";
   return "other";
 }
+
+/** Scan only the start of very long system prompts. */
+const AGENT_SCAN_CHARS = 200_000;
+/** `[agent:coder]` written anywhere in an agent's system prompt (e.g. .claude/agents/coder.md). */
+const AGENT_MARKER = /\[agent:\s*([\w.-]{1,40})\s*\]/i;
+
+function systemText(body: Record<string, any>): string {
+  const text = (v: unknown): string =>
+    typeof v === "string"
+      ? v
+      : Array.isArray(v)
+        ? v.map((b) => (typeof b?.text === "string" ? b.text : "")).join("\n")
+        : "";
+  // Anthropic: top-level `system`; OpenAI: system/developer messages.
+  const parts = [text(body.system)];
+  if (Array.isArray(body.messages))
+    for (const m of body.messages)
+      if (m?.role === "system" || m?.role === "developer") parts.push(text(m.content));
+  return parts.join("\n").slice(0, AGENT_SCAN_CHARS);
+}
+
+/**
+ * Which agent sent the request, for the dashboard: an explicit `[agent:name]` marker, or a
+ * coarse guess from Claude Code's own prompts ("main" session, built-in "subagent",
+ * "auto-mode" safety classifier). Null when nothing matches. Display only, like detectClient.
+ */
+export function detectAgent(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const system = systemText(body as Record<string, any>);
+  if (!system) return null;
+  const marker = AGENT_MARKER.exec(system);
+  if (marker) return marker[1].toLowerCase();
+  if (system.includes("You are a security monitor for autonomous AI coding agents")) return "auto-mode";
+  if (/You are Claude Code, Anthropic's official CLI/.test(system)) return "main";
+  if (/Claude Code|Anthropic's official CLI for Claude/.test(system)) return "subagent";
+  return null;
+}

@@ -54,6 +54,7 @@ export function migrate(storage: DurableObjectStorage): void {
       ["upstream_host", "TEXT"],
       ["ttfb", "INTEGER"],
       ["steps", "TEXT"],
+      ["agent", "TEXT"],
     ])
       if (!columns.has(name))
         sql.exec(`ALTER TABLE requests ADD COLUMN ${name} ${type}`);

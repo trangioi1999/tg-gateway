@@ -13,16 +13,20 @@ export interface CachedAnswer {
   outputTokens: number;
   inputSource: string;
   outputSource: string;
+  stopReason?: Completion["stopReason"];
+  stopSequence?: string;
 }
 
 const MAX_ENTRIES = 32;
 const MAX_ENTRY_CHARS = 2 * 1024 * 1024;
 
-/** Cache key: the Kiro payload without per-request IDs. */
-export async function responseKey(payload: Obj): Promise<string> {
+/** Cache key: the Kiro payload without per-request IDs, plus the gateway-applied stop sequences. */
+export async function responseKey(payload: Obj, stopSequences: string[] = []): Promise<string> {
   const { profileArn: _arn, conversationState, ...rest } = payload;
   const { conversationId: _id, ...state } = conversationState ?? {};
-  const bytes = new TextEncoder().encode(JSON.stringify({ ...rest, conversationState: state }));
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ ...rest, conversationState: state, ...(stopSequences.length ? { stopSequences } : {}) }),
+  );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -35,6 +39,8 @@ export function snapshot(c: Completion): CachedAnswer {
     outputTokens: c.outputTokens,
     inputSource: c.inputSource,
     outputSource: c.outputSource,
+    ...(c.stopReason ? { stopReason: c.stopReason } : {}),
+    ...(c.stopSequence ? { stopSequence: c.stopSequence } : {}),
   };
 }
 
@@ -45,6 +51,8 @@ export function restore(a: CachedAnswer): Completion {
   c.outputTokens = a.outputTokens;
   c.inputSource = a.inputSource;
   c.outputSource = a.outputSource;
+  c.stopReason = a.stopReason;
+  c.stopSequence = a.stopSequence;
   c.terminal = true;
   return c;
 }

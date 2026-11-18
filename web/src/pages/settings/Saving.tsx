@@ -82,6 +82,18 @@ export default function Saving({ draft, set }: SectionProps) {
             />
           </Row>
           {number("responseCacheSeconds", "Cache câu trả lời (giây)", 0, 3600)}
+          <Row
+            label="Model cho bộ phân loại auto mode"
+            note="Claude Code gửi thêm 1 request kiểm tra an toàn cho mỗi tool call ở auto mode. Để trống = dùng model của client. Chỉ áp dụng khi model đã bật."
+          >
+            <input
+              type="text"
+              aria-label="Model cho bộ phân loại auto mode"
+              placeholder="claude-sonnet-5.5"
+              value={draft.autoModeModel}
+              onChange={(e) => set("autoModeModel", e.target.value.trim())}
+            />
+          </Row>
         </div>
         <p className="note">
           Chỉ áp dụng cho đường Kiro. Request max_tokens = 1 luôn được trả lời

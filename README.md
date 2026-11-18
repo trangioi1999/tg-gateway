@@ -11,7 +11,10 @@ Gateway TypeScript chạy trực tiếp trên **Cloudflare Workers**, có dashbo
 - Console web (React + TypeScript + Vite, trong `web/`) gồm các màn hình:
   - **Đăng nhập**.
   - **Tổng quan**: tổng request, thành công/lỗi/đang chạy, token input/output, độ trễ, thống kê model; xem theo ngày/tuần/tháng và theo nhà cung cấp.
-  - **Lịch sử request**: phân trang, lọc, CSV; bấm một dòng để mở dialog chi tiết gồm nguồn gọi, các bước xử lý, payload/response (nếu đã bật capture) và lỗi.
+  - **Lịch sử request**: phân trang, lọc, CSV, cột nhà cung cấp; bấm một dòng để mở dialog chi tiết gồm nguồn gọi, các bước xử lý, payload/response (nếu đã bật capture) và lỗi. Payload/response hiển thị đã định dạng sẵn (JSON thụt lề kể cả khi bị cắt ở 64 KB, stream SSE được ghép lại thành message cuối); nút "Gốc" xem bytes nguyên bản.
+  - **Agent gọi request**: dưới tên client trong bảng Lịch sử (và trong dialog) hiện agent đã gửi request: "Phiên chính", "Subagent", "Phân loại auto mode" (bộ phân loại an toàn của auto mode), đoán từ system prompt của Claude Code. Để thấy tên riêng như `coder`, `leader`, thêm một dòng `[agent:coder]` vào phần nội dung (dưới frontmatter) của file agent, ví dụ `.claude/agents/coder.md`. Ô tìm kiếm cũng tìm theo tên agent.
+  - **Request đang chạy**: dialog tự cập nhật mỗi giây, hiện bước đang chạy và **output trực tiếp** (text, thinking, tool call) như log của một pipeline CI. Output này chỉ nằm trong bộ nhớ khi request còn chạy, không lưu vào DB. Nút **Dừng** (trong dialog hoặc ■ trên dòng của bảng) cắt request: client nhận lỗi `cancelled` kèm `x-should-retry: false`, log ghi 499 `cancelled`.
+  - **Phiên bản web**: góc dưới sidebar hiện `v<version>` (ví dụ `v0.1.0`, lấy từ `package.json`); rê chuột vào để xem commit và giờ build. Khi bản deploy mới hơn tab đang mở (kiểm tra `/version.json` mỗi 5 phút và khi quay lại tab), sidebar hiện "Có bản mới · Tải lại". Dùng để biết chắc Worker đã được deploy bản mới chưa.
   - **Cài đặt** (8 mục).
 - Thống kê theo giờ được giữ vĩnh viễn: xóa log/lịch sử request không làm mất số tổng.
 - Credit thật của nhà cung cấp (cache 5 phút): Kiro (`getUsageLimits`), OpenRouter (số dư), Claude API (chi phí tháng tính từ usage).
@@ -181,6 +184,7 @@ ghi rõ cơ chế nào đã chạy và số token tiết kiệm (ước tính); 
 | Xóa tool result cũ | bật, ngưỡng 60k token, giữ 4 | Khi prompt vượt ngưỡng, output của các lần gọi tool cũ được thay bằng một dòng ghi chú. Cặp gọi/kết quả tool và tin nhắn hiện tại giữ nguyên. Tùy chọn rút gọn cả tham số tool cũ. Lịch sử phía client không đổi. |
 | Compact | **tắt** | Khi prompt vẫn vượt 120k token, tóm tắt phần đầu bằng `compactModel` (mặc định `claude-haiku-4.5`), giữ nguyên ~30k token cuối. Bản tóm tắt được dùng lại cho các lượt sau, chỉ tóm tắt thêm khi cần. Mỗi lần tóm tắt hiện thành một dòng `internal:compact` trong lịch sử. |
 | Cache câu trả lời | 300 s | Request giống hệt từng byte được phát lại từ bộ nhớ (header `x-gateway-cache: hit`, 0 credit). Request giống hệt đang chạy song song chỉ gọi Kiro một lần. |
+| Model cho bộ phân loại auto mode | `claude-sonnet-5.5` | Ở auto mode, Claude Code gửi thêm một request kiểm tra an toàn (system prompt dài kèm transcript) cho mỗi tool call, bằng model chính. Gateway nhận ra request này và gửi lên Kiro bằng model đã chọn (chỉ khi model đó đã bật trong danh sách model). Để trống để giữ model của client. Lịch sử ghi tag `auto→model rẻ`. |
 
 Riêng tư: cache câu trả lời chỉ nằm trong bộ nhớ Durable Object (tối đa 32 mục, mất khi khởi
 động lại). Compact lưu **bản tóm tắt nội dung hội thoại** trong SQLite của Durable Object, xóa
@@ -289,6 +293,7 @@ Các file chính:
 - `src/dashboard/api.ts`: các handler `/api/*` của console (overview, lịch sử, chi tiết, export, providers); `src/dashboard/period.ts`: khoảng ngày/tuần/tháng theo múi giờ; `src/dashboard/contract.ts`: kiểu dữ liệu dùng chung với `web/`.
 - `src/db/schema.ts`: schema SQLite và migration; `src/db/stats.ts`: bảng thống kê theo giờ `stats_hourly`.
 - `src/trace.ts`: các bước xử lý của request và payload capture.
+- `src/stream-text.ts`: đọc lại SSE/JSON đã gửi cho client thành text dễ đọc (output trực tiếp, view "Đã ghép"); dùng chung cho Worker và `web/`.
 - `src/upstream/kiro.ts`: gọi Kiro runtime; `src/upstream/quota.ts`: quota/credit của các nhà cung cấp.
 - `src/protocol.ts` (chuyển đổi + binary parser), `src/kiro-auth.ts` (refresh + vault), `src/stream.ts` (SSE/JSON), `src/security.ts` (session/crypto).
 - `web/`: console React, build ra `web/dist` và được Worker phục vụ qua `assets.directory`.
@@ -308,7 +313,7 @@ Unit tests kiểm tra chuyển đổi, tool pairing, CRC/UTF-8, stream bị cắ
 - Chưa test end-to-end với tài khoản Kiro thật nếu chưa cung cấp credentials. Giao thức Kiro có thể thay đổi; cần smoke-test sau khi triển khai.
 - Một tài khoản Kiro, một admin, một API key. Chưa có multi-account failover hay người dùng riêng.
 - Hỗ trợ text và function tools. Chưa hỗ trợ ảnh, web search tích hợp, Responses API, embeddings hay extended thinking.
-- `thinking`, `temperature`, `top_p`, `top_k` được chấp nhận nhưng **bỏ qua** (liệt kê trong header `x-gateway-ignored-params`). Các tham số làm thay đổi nội dung kết quả như `stop`, `stop_sequences`, `response_format`, `seed` vẫn bị từ chối rõ ràng. `max_tokens`/`max_completion_tokens` chỉ là compatibility hint, **không áp đặt giới hạn output** vì chưa xác minh trường tương đương trong giao thức Kiro. Không dùng chúng để khống chế chi phí.
+- `thinking`, `temperature`, `top_p`, `top_k` được chấp nhận nhưng **bỏ qua** (liệt kê trong header `x-gateway-ignored-params`). `stop` / `stop_sequences` được gateway tự áp dụng (Kiro không hỗ trợ): text bị cắt ở chuỗi dừng đầu tiên, phần Kiro gửi sau đó bị bỏ, trả về `stop_reason: "stop_sequence"` (Claude Code dùng tham số này cho bộ phân loại an toàn của auto mode). `response_format`, `seed` vẫn bị từ chối rõ ràng. `max_tokens`/`max_completion_tokens` chỉ là compatibility hint, **không áp đặt giới hạn output** vì chưa xác minh trường tương đương trong giao thức Kiro. Không dùng chúng để khống chế chi phí.
 - Tool arguments được gom đầy đủ trước khi gửi tool block; text vẫn stream từng phần. Client tự thực thi tool.
 - Giới hạn JSON đầu vào 1 MiB, dữ liệu stream tổng 16 MiB, timeout tối đa 600 giây, export CSV tối đa 5.000 dòng. Không tự retry 429/5xx để tránh ghi nhận/gọi model trùng; chỉ refresh và thử lại một lần khi upstream trả 401/403.
 - Dashboard không tạo/sửa secret trên Cloudflare vì như vậy phải trao quyền Cloudflare API cho chính ứng dụng. Dùng script/CLI hoặc Cloudflare Dashboard.

@@ -23,6 +23,8 @@ export interface RequestRow {
   error_code: string | null; error_message: string | null; optimizations: string; saved_tokens: number;
   streamed: number; ip: string | null; country: string | null; city: string | null; colo: string | null;
   user_agent: string | null; upstream_host: string | null; ttfb: number | null;
+  /** "main", "subagent", "auto-mode" or a `[agent:name]` marker; null if unknown. */
+  agent: string | null;
 }
 export interface RequestList { page: number; pageSize: number; total: number; items: RequestRow[]; summary: Totals; range: Range }
 export type StepKey = "received" | "auth" | "optimize" | "cache" | "local" | "upstream" | "stream" | "done" | "error";
@@ -30,7 +32,9 @@ export type StepState = "done" | "skip" | "active" | "error" | "pending";
 /** at/dur in ms from request start; null = not reached. */
 export interface Step { key: StepKey; state: StepState; at: number | null; dur: number | null; detail: string }
 export interface Payload { request: string | null; response: string | null; truncated: boolean }
-export interface RequestDetail { request: RequestRow; steps: Step[]; payload: Payload | null }
+/** Readable output of a running request: text after `from`, `total` chars produced so far. */
+export interface LiveText { from: number; text: string; total: number; bytes: number }
+export interface RequestDetail { request: RequestRow; steps: Step[]; payload: Payload | null; live: LiveText | null }
 export interface ProviderQuota {
   id: ProviderId; configured: boolean; ok: boolean; error?: string;
   plan?: string; used?: number; limit?: number; unit: "credit" | "usd";
