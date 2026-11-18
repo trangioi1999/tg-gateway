@@ -22,7 +22,7 @@ import ConfirmClear from "../components/ConfirmClear";
 import { stopRequest } from "../api/requests";
 export default function Requests({ headerTools }: { headerTools: ReactNode }) {
   const [period, setPeriod] = useState<PeriodValue>({
-      period: "week",
+      period: "day",
       anchor: localDate(),
     }),
     [search, setSearch] = useState(""),
