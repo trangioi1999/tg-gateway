@@ -31,6 +31,8 @@ import {
   clearToolResults,
   conversationTokens,
   prefixHashes,
+  historyTokens,
+  canStartCompactTail,
   chooseCut,
   renderTranscript,
   summaryRequest,
@@ -1058,7 +1060,7 @@ export class Gateway extends DurableObject<Env> {
   }
   /**
    * Gateway-side compaction. Reuses the longest stored summary matching the conversation's
-   * start; when the prompt is still above compactTriggerTokens, summarizes further with
+   * start; when history is still above compactTriggerTokens, summarizes further with
    * compactModel and stores the result. Summarizer failures leave the request uncompacted.
    */
   async compact(
@@ -1072,17 +1074,18 @@ export class Gateway extends DurableObject<Env> {
     const before = conversationTokens(c);
     const cleared = c.turns;
     const hashes = await prefixHashes(original);
+    const eligibleHashes = hashes.slice(0, -1).filter((_, i) => canStartCompactTail(cleared[i + 1]));
     let base = 0,
       summary = "";
-    for (let i = 0; i < hashes.length - 1; i += 90) {
-      const chunk = hashes.slice(i, Math.min(i + 90, hashes.length - 1));
+    for (let i = 0; i < eligibleHashes.length; i += 90) {
+      const chunk = eligibleHashes.slice(i, i + 90);
       const row = this.sql
         .exec<{ entries: number; summary: string }>(
           `SELECT entries, summary FROM summaries WHERE hash IN (${chunk.map(() => "?").join(",")}) ORDER BY entries DESC LIMIT 1`,
           ...chunk,
         )
         .toArray()[0];
-      if (row && row.entries > base && cleared[row.entries]?.userInputMessage) {
+      if (row && row.entries > base) {
         base = row.entries;
         summary = row.summary;
       }
@@ -1092,8 +1095,13 @@ export class Gateway extends DurableObject<Env> {
       turns: applySummary(cleared, cut, text),
     });
     let next = base ? apply(base, summary) : c;
+    if (base && conversationTokens(next) >= before) {
+      next = c;
+      base = 0;
+      summary = "";
+    }
     let summarized = false;
-    if (conversationTokens(next) > s.compactTriggerTokens) {
+    if (historyTokens(next.turns) > s.compactTriggerTokens) {
       const cut = chooseCut(cleared, s.compactKeepTokens, base);
       if (cut > base) {
         const key = hashes[cut - 1];
@@ -1110,17 +1118,20 @@ export class Gateway extends DurableObject<Env> {
           }
           // Shared with identical requests: stopping this one must not wait for it.
           const text = await abortable(pending, signal);
-          // Current setting: compaction may have been turned off (summaries deleted) meanwhile.
-          if (this.settings().compactEnabled)
-            this.sql.exec(
-              "INSERT OR REPLACE INTO summaries VALUES(?,?,?,?)",
-              key,
-              cut,
-              text,
-              Date.now(),
-            );
-          next = apply(cut, text);
-          summarized = true;
+          const candidate = apply(cut, text);
+          if (conversationTokens(candidate) < conversationTokens(next)) {
+            // Compaction can be turned off while the model is running.
+            if (this.settings().compactEnabled)
+              this.sql.exec(
+                "INSERT OR REPLACE INTO summaries VALUES(?,?,?,?)",
+                key,
+                cut,
+                text,
+                Date.now(),
+              );
+            next = candidate;
+            summarized = true;
+          }
         } catch (error) {
           if (signal.aborted) throw error;
           console.warn(`compact: ${(error as Error).message}`);

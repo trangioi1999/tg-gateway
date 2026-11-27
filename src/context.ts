@@ -142,19 +142,27 @@ export async function prefixHashes(turns: Obj[]): Promise<string[]> {
 
 const turnTokens = (turn: Obj) => estimateTokens(JSON.stringify(turn));
 
+export function historyTokens(turns: Obj[]): number {
+  return turns.slice(0, -1).reduce((total, turn) => total + turnTokens(turn), 0);
+}
+
+export function canStartCompactTail(turn: Obj): boolean {
+  const user = turn.userInputMessage;
+  return Boolean(user && !user.userInputMessageContext?.toolResults?.length);
+}
+
 /**
- * Index of the first turn to keep verbatim: the earliest user turn after `from` whose tail
- * fits in `keepTokens`. Falls back to the current (last) turn. Returns `from` when nothing
- * new can be summarized.
+ * Keep the earliest complete user exchange whose tail fits the budget. A tool result
+ * stays with its call even when the most recent exchange alone exceeds the budget.
  */
 export function chooseCut(turns: Obj[], keepTokens: number, from: number): number {
-  const last = turns.length - 1;
-  let cut = last,
-    tail = 0;
-  for (let i = last; i > from; i--) {
+  let cut = from;
+  let tail = 0;
+  for (let i = turns.length - 1; i > from; i--) {
     tail += turnTokens(turns[i]);
+    if (!canStartCompactTail(turns[i])) continue;
+    if (cut === from || tail <= keepTokens) cut = i;
     if (tail > keepTokens) break;
-    if (turns[i].userInputMessage) cut = i;
   }
   if (cut <= from) return from;
   const summarized = turns.slice(from, cut).reduce((n, t) => n + turnTokens(t), 0);
@@ -163,6 +171,21 @@ export function chooseCut(turns: Obj[], keepTokens: number, from: number): numbe
 
 const clip = (text: string, max: number) =>
   text.length > max ? text.slice(0, max) + `… [${text.length - max} more chars]` : text;
+
+function resultExcerpt(text: string): string {
+  if (text.length <= TRANSCRIPT_RESULT_CHARS) return text;
+  const head = Math.floor(TRANSCRIPT_RESULT_CHARS / 3);
+  const tail = TRANSCRIPT_RESULT_CHARS - head;
+  return `${text.slice(0, head)} … [${text.length - head - tail} chars omitted] … ${text.slice(-tail)}`;
+}
+
+function toolArguments(input: Obj = {}): string {
+  const { file_path, path, command, ...other } = input;
+  const location = Object.entries({ file_path, path, command })
+    .filter(([, value]) => typeof value === "string")
+    .map(([key, value]) => `${key}=${clip(JSON.stringify(value), TRANSCRIPT_INPUT_CHARS)}`);
+  return [...location, clip(JSON.stringify(other), TRANSCRIPT_INPUT_CHARS)].join(" ");
+}
 
 /** Plain-text transcript of `turns` for the summarizer, continuing `previous` if given. */
 export function renderTranscript(turns: Obj[], previous = ""): string {
@@ -175,7 +198,7 @@ export function renderTranscript(turns: Obj[], previous = ""): string {
     if (user) {
       for (const r of user.userInputMessageContext?.toolResults ?? [])
         lines.push(
-          `Tool result (${r.toolUseId}${r.status === "error" ? ", error" : ""}): ${clip(resultText(r), TRANSCRIPT_RESULT_CHARS)}`,
+          `Tool result (${r.toolUseId}${r.status ? `, ${r.status}` : ""}): ${resultExcerpt(resultText(r))}`,
         );
       if (user.content && user.content !== "(empty)") lines.push(`User: ${user.content}`);
     } else if (assistant) {
@@ -183,7 +206,7 @@ export function renderTranscript(turns: Obj[], previous = ""): string {
         lines.push(`Assistant: ${assistant.content}`);
       for (const u of assistant.toolUses ?? [])
         lines.push(
-          `Assistant called ${u.name} (${u.toolUseId}): ${clip(JSON.stringify(u.input), TRANSCRIPT_INPUT_CHARS)}`,
+          `Assistant called ${u.name} (${u.toolUseId}): ${toolArguments(u.input)}`,
         );
     }
   }
